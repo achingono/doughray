@@ -47,6 +47,8 @@ describe('expense-analysis.service', () => {
       { posted: new Date('2026-03-09'), amount: -180, description: 'Insurance premium', payee: 'Acme Insurance', category: { name: 'Insurance' } },
       { posted: new Date('2026-04-09'), amount: -195, description: 'Insurance premium', payee: 'Acme Insurance', category: { name: 'Insurance' } },
       { posted: new Date('2026-04-01'), amount: -120, description: 'Internet bill', payee: 'FastNet Telecom', category: { name: 'Utilities' } },
+      { posted: new Date('2026-04-03'), amount: -500, description: 'Transfer to savings', payee: 'Tangerine', category: { name: 'Transfers', parent: { name: 'Financial' } } },
+      { posted: new Date('2026-04-04'), amount: -200, description: 'ETF purchase', payee: 'VFV', category: { name: 'Investments', parent: { name: 'Income' } } },
     ];
 
     const result = analyzeExpenseOptimization(txs, '2026-01-01 to 2026-06-30');
@@ -85,6 +87,14 @@ describe('expense-analysis.service', () => {
         payee: 'NETFLIX',
         memo: null,
         category: { name: 'Subscriptions' },
+      },
+      {
+        posted: new Date('2026-05-02T00:00:00.000Z'),
+        amount: new Decimal('-250'),
+        description: 'Transfer to savings',
+        payee: 'Tangerine',
+        memo: null,
+        category: { name: 'Transfers', parent: { name: 'Financial' } },
       },
     ]);
     openAiMock.chat.completions.create.mockResolvedValue({

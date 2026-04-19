@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma';
 import openai, { getMissingAzureOpenAIConfig } from '../lib/openai';
+import { isExpenseTransaction } from '../lib/expense-transactions';
 import { decimalToNumber } from '../lib/types';
 import { buildPFSPrompt } from '../prompts/pfs';
 import { ReportType, type Prisma } from '@prisma/client';
@@ -191,6 +192,7 @@ export async function generatePFS(options: { overwriteExisting?: boolean } = {})
     }),
     prisma.transaction.findMany({
       where: { posted: { gte: startOfMonth } },
+      include: { category: { select: { name: true, parent: { select: { name: true } } } } },
     }),
   ]);
 
@@ -216,7 +218,7 @@ export async function generatePFS(options: { overwriteExisting?: boolean } = {})
   for (const t of monthlyTransactions) {
     const amt = decimalToNumber(t.amount);
     if (amt > 0) monthlyIncome += amt;
-    else monthlyExpenses += Math.abs(amt);
+    else if (isExpenseTransaction({ amount: amt, category: t.category })) monthlyExpenses += Math.abs(amt);
   }
 
   // Calculate ratios

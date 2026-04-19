@@ -33,8 +33,10 @@ describe('dashboard.service', () => {
     ]);
     assetServiceMock.getTotalAssetValue.mockResolvedValue(500);
     prismaMock.transaction.findMany.mockResolvedValue([
-      { amount: new Decimal('200') },
-      { amount: new Decimal('-50') },
+      { amount: new Decimal('200'), category: null },
+      { amount: new Decimal('-50'), category: { name: 'Food', parent: { name: 'Food & Dining' } } },
+      { amount: new Decimal('-100'), category: { name: 'Transfers', parent: { name: 'Financial' } } },
+      { amount: new Decimal('-25'), category: { name: 'Investments', parent: { name: 'Income' } } },
     ]);
 
     const summary = await getDashboardSummary();
@@ -80,11 +82,13 @@ describe('dashboard.service', () => {
     expect(trends[2].value).toBe(70);
   });
 
-  it('groups spending by category including uncategorized', async () => {
+  it('groups spending by category including uncategorized and excluding non-expense transfers', async () => {
     prismaMock.transaction.findMany.mockResolvedValue([
-      { amount: new Decimal('-12.5'), category: { id: 'c1', name: 'Food', icon: 'Utensils', color: 'blue' } },
-      { amount: new Decimal('-7.5'), category: { id: 'c1', name: 'Food', icon: 'Utensils', color: 'blue' } },
+      { amount: new Decimal('-12.5'), category: { id: 'c1', name: 'Food', icon: 'Utensils', color: 'blue', parent: { name: 'Food & Dining' } } },
+      { amount: new Decimal('-7.5'), category: { id: 'c1', name: 'Food', icon: 'Utensils', color: 'blue', parent: { name: 'Food & Dining' } } },
       { amount: new Decimal('-20'), category: null },
+      { amount: new Decimal('-200'), category: { id: 'c2', name: 'Transfers', icon: 'ArrowRightLeft', color: 'slate', parent: { name: 'Financial' } } },
+      { amount: new Decimal('-40'), category: { id: 'c3', name: 'Investments', icon: 'TrendingUp', color: 'emerald', parent: { name: 'Income' } } },
     ]);
 
     const spending = await getSpendingByCategory();

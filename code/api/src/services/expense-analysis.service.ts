@@ -1,6 +1,7 @@
 import { ReportType, type Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import openai, { getMissingAzureOpenAIConfig } from '../lib/openai';
+import { isExpenseTransaction } from '../lib/expense-transactions';
 import { decimalToNumber } from '../lib/types';
 import { normalizePayee } from '../lib/normalize-payee';
 import { buildExpenseAnalysisPrompt } from '../prompts/expense-analysis';
@@ -16,7 +17,7 @@ interface ExpenseTransaction {
   description: string;
   payee?: string | null;
   memo?: string | null;
-  category?: { name: string } | null;
+  category?: { name: string; parent?: { name: string } | null } | null;
 }
 
 interface RecurringMerchant {
@@ -293,7 +294,7 @@ function buildSavingsOpportunities(
 }
 
 export function analyzeExpenseOptimization(transactions: ExpenseTransaction[], periodCovered: string): ExpenseAnalysisSummary {
-  const expenses = transactions.filter((tx) => tx.amount < 0);
+  const expenses = transactions.filter((tx) => isExpenseTransaction(tx));
   const totalExpenses = Math.round(expenses.reduce((sum, tx) => sum + Math.abs(tx.amount), 0) * 100) / 100;
   let essential = 0;
   let discretionary = 0;
@@ -355,7 +356,7 @@ export async function generateExpenseAnalysis(options: { overwriteExisting?: boo
       description: true,
       payee: true,
       memo: true,
-      category: { select: { name: true } },
+      category: { select: { name: true, parent: { select: { name: true } } } },
     },
   });
 

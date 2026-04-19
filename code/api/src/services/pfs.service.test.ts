@@ -244,8 +244,9 @@ describe('pfs.service', () => {
       ]);
       prismaMock.netWorthSnapshot.findMany.mockResolvedValue([]);
       prismaMock.transaction.findMany.mockResolvedValue([
-        { amount: new Decimal('5000') },
-        { amount: new Decimal('-3000') },
+        { amount: new Decimal('5000'), category: null },
+        { amount: new Decimal('-3000'), category: { name: 'Rent/Mortgage', parent: { name: 'Housing' } } },
+        { amount: new Decimal('-500'), category: { name: 'Transfers', parent: { name: 'Financial' } } },
       ]);
 
       openAiMock.chat.completions.create.mockResolvedValue({
@@ -276,6 +277,10 @@ describe('pfs.service', () => {
               netWorth: 208000,
               totalAssets: 210000,
               totalLiabilities: 2000,
+              solvencyBenchmarking: expect.objectContaining({
+                liquidityRatio: 3.33,
+                savingsRate: 0.4,
+              }),
               trendAnalysis: 'Net worth is stable.',
               overallInsight: 'Strong financial position.',
             }),

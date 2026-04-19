@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma';
 import { DashboardSummary, TrendDataPoint, decimalToNumber } from '../lib/types';
+import { isExpenseTransaction } from '../lib/expense-transactions';
 import { getTotalAssetValue } from './asset.service';
 import { buildCumulativeMonthlyPoints, deriveMonthCount, mapSnapshotsToTrendPoints, shouldUseSnapshots } from './trend-utils';
 
@@ -29,6 +30,7 @@ export async function getDashboardSummary(accountId?: string): Promise<Dashboard
 
   const monthlyTransactions = await prisma.transaction.findMany({
     where: { posted: { gte: startOfMonth }, ...(accountId ? { accountId } : {}) },
+    include: { category: { select: { name: true, parent: { select: { name: true } } } } },
   });
 
   let monthlyIncome = 0;
@@ -37,7 +39,7 @@ export async function getDashboardSummary(accountId?: string): Promise<Dashboard
   for (const t of monthlyTransactions) {
     const amt = decimalToNumber(t.amount);
     if (amt > 0) monthlyIncome += amt;
-    else monthlyExpenses += Math.abs(amt);
+    else if (isExpenseTransaction({ amount: amt, category: t.category })) monthlyExpenses += Math.abs(amt);
   }
 
   return {
@@ -122,15 +124,28 @@ export async function getSpendingByCategory(startDate?: Date, endDate?: Date, ac
 
   const transactions = await prisma.transaction.findMany({
     where,
-    include: { category: { select: { id: true, name: true, icon: true, color: true } } },
+    include: {
+      category: {
+        select: {
+          id: true,
+          name: true,
+          icon: true,
+          color: true,
+          parent: { select: { name: true } },
+        },
+      },
+    },
   });
 
   const byCategory = new Map<string, { category: any; total: number }>();
 
   for (const t of transactions) {
+    if (!isExpenseTransaction({ amount: decimalToNumber(t.amount), category: t.category })) continue;
     const catName = t.category?.name || 'Uncategorized';
     const existing = byCategory.get(catName) || {
-      category: t.category || { id: null, name: 'Uncategorized', icon: 'HelpCircle', color: 'gray' },
+      category: t.category
+        ? { id: t.category.id, name: t.category.name, icon: t.category.icon, color: t.category.color }
+        : { id: null, name: 'Uncategorized', icon: 'HelpCircle', color: 'gray' },
       total: 0,
     };
     existing.total += Math.abs(decimalToNumber(t.amount));
