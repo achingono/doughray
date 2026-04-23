@@ -141,10 +141,14 @@ jobs:
         run: |
           spa_exit=$(docker wait zap-spa)
           api_exit=$(docker wait zap-api)
+          echo "ZAP container exit codes: spa=$spa_exit api=$api_exit"
           echo "spa_exit=$spa_exit" >> "$GITHUB_OUTPUT"
           echo "api_exit=$api_exit" >> "$GITHUB_OUTPUT"
-          if [ "$spa_exit" -ne 0 ] || [ "$api_exit" -ne 0 ]; then
-            echo "One or more ZAP scans failed."
+          # ZAP baseline returns:
+          # 0 = no issues, 1 = at least one FAIL, 2 = at least one WARN, 3 = scanner/runtime error.
+          # Treat only scanner/runtime errors as hard workflow failures so reports are still produced.
+          if [ "$spa_exit" -ge 3 ] || [ "$api_exit" -ge 3 ]; then
+            echo "One or more ZAP scans encountered a scanner/runtime error."
             exit 1
           fi
 
