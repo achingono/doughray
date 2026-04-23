@@ -60,7 +60,11 @@ jobs:
 
       - name: Run unit and integration tests
         working-directory: code
-        run: npm test
+        run: |
+          mkdir -p test-results/api test-results/spa test-results/worker
+          npm run test --workspace=api -- --reporter=default --reporter=junit --outputFile=../test-results/api/results.xml
+          npm run test --workspace=spa -- --reporter=default --reporter=junit --outputFile=../test-results/spa/results.xml
+          npm run test --workspace=worker -- --reporter=default --reporter=junit --outputFile=../test-results/worker/results.xml
 
       - name: Build all workspaces
         working-directory: code
@@ -183,7 +187,7 @@ jobs:
         if: always()
         id: check-results
         run: |
-          if find code/spa/test-results zap-reports/junit -name "*.xml" -type f 2>/dev/null | grep -q .; then
+          if find code/test-results code/spa/test-results zap-reports/junit -name "*.xml" -type f 2>/dev/null | grep -q .; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
@@ -194,6 +198,7 @@ jobs:
         uses: ./.github/actions/test-reporter
         with:
           test-results-path: |
+            code/test-results/**/*.xml
             code/spa/test-results/*.xml
             zap-reports/junit/*.xml
           name: Build and Test Results

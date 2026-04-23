@@ -5,6 +5,53 @@ const path = require('path');
 const { glob } = require('glob');
 const { parseStringPromise } = require('xml2js');
 
+async function getFetch() {
+  return (await import('node-fetch')).default;
+}
+
+async function resolvePrNumber(token, repository) {
+  const eventPath = process.env.GITHUB_EVENT_PATH;
+  if (eventPath && fs.existsSync(eventPath)) {
+    try {
+      const event = JSON.parse(fs.readFileSync(eventPath, 'utf8'));
+      const pullRequestNumber = event.pull_request?.number;
+      if (pullRequestNumber) {
+        return String(pullRequestNumber);
+      }
+    } catch (err) {
+      console.log(`Warning: Failed to parse GITHUB_EVENT_PATH: ${err.message}`);
+    }
+  }
+
+  const sha = process.env.GITHUB_SHA;
+  if (!sha) {
+    return null;
+  }
+
+  try {
+    const [owner, repo] = repository.split('/');
+    const fetch = await getFetch();
+    const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/commits/${sha}/pulls`, {
+      headers: {
+        'Authorization': `token ${token}`,
+        'Accept': 'application/vnd.github+json'
+      }
+    });
+
+    if (!response.ok) {
+      console.log(`Warning: Failed to resolve PR for commit ${sha}: ${response.status} ${response.statusText}`);
+      return null;
+    }
+
+    const pulls = await response.json();
+    const openPullRequest = pulls.find(pr => pr.state === 'open') || pulls[0];
+    return openPullRequest ? String(openPullRequest.number) : null;
+  } catch (err) {
+    console.log(`Warning: Failed to resolve PR for commit ${sha}: ${err.message}`);
+    return null;
+  }
+}
+
 // Coverage thresholds
 const COVERAGE_THRESHOLD_HIGH = 0.8;
 const COVERAGE_THRESHOLD_LOW = 0.6;
@@ -318,7 +365,7 @@ function createSummary(results, coverage, reportName) {
 async function postPrComment(summary) {
   const token = process.env.GITHUB_TOKEN;
   const repository = process.env.GITHUB_REPOSITORY;
-  const prNumber = process.env.GITHUB_REF?.match(/refs\/pull\/(\d+)\//)?.[1];
+  const prNumber = token && repository ? await resolvePrNumber(token, repository) : null;
 
   if (!token || !repository || !prNumber) {
     console.log('Not a PR event or missing required environment variables. Skipping PR comment.');
@@ -329,7 +376,7 @@ async function postPrComment(summary) {
   const commentsUrl = `https://api.github.com/repos/${owner}/${repo}/issues/${prNumber}/comments`;
 
   try {
-    const fetch = (await import('node-fetch')).default;
+    const fetch = await getFetch();
 
     const commentsResponse = await fetch(commentsUrl, {
       headers: {
