@@ -302,6 +302,26 @@ Returns a single account by ID, including the 20 most recent transactions.
     "availableBalance": 5400.00,
     "balanceDate": "2025-01-15T00:00:00.000Z",
     "isActive": true,
+    "loanDetails": {
+      "loanType": "MORTGAGE",
+      "originalPrincipal": 559000.00,
+      "currentPrincipal": 538830.46,
+      "interestType": "FIXED",
+      "interestRateAnnual": 5.05,
+      "paymentAmount": 1631.86,
+      "paymentFrequency": "SEMI_MONTHLY",
+      "termStartDate": "2024-08-01T00:00:00.000Z",
+      "termMaturityDate": "2027-08-01T00:00:00.000Z",
+      "originalAmortizationMonths": 300,
+      "remainingAmortizationMonths": 279,
+      "renewalDate": "2027-08-01T00:00:00.000Z",
+      "notes": "Primary residence mortgage",
+      "lastVerifiedAt": "2026-04-20T00:00:00.000Z",
+      "source": "USER_ENTERED",
+      "updatedBy": "system",
+      "createdAt": "2026-04-14T00:00:00.000Z",
+      "updatedAt": "2026-04-20T00:00:00.000Z"
+    },
     "transactionCount": 142,
     "recentTransactions": [
       {
@@ -402,6 +422,78 @@ Updates the stored account balance snapshot so holdings and net worth can be rec
 curl -X PATCH http://localhost:3000/api/accounts/clxabc001/balance \
   -H 'Content-Type: application/json' \
   -d '{"balance":12854.77,"availableBalance":12854.77,"balanceDate":"2026-04-13"}'
+```
+
+---
+
+#### `PATCH /api/accounts/:id/loan-details`
+
+Creates or updates loan metadata for a liability account (`CREDIT_CARD`, `LOAN`, `MORTGAGE`). Existing account balances and transaction history are unaffected.
+
+**Path Parameters:**
+
+| Parameter | Type   | Description |
+| --------- | ------ | ----------- |
+| `id`      | string | Account ID  |
+
+**Request Body:**
+
+| Field                         | Type                                                | Required | Description |
+| ----------------------------- | --------------------------------------------------- | -------- | ----------- |
+| `loanType`                    | `MORTGAGE` \| `AUTO_LOAN` \| `PERSONAL_LOAN` \| `HELOC` \| `OTHER` | Yes | Loan classification |
+| `originalPrincipal`           | number or `null`                                    | No | Original principal amount |
+| `currentPrincipal`            | number or `null`                                    | No | Current principal amount |
+| `interestType`                | `FIXED` \| `VARIABLE` \| `null`                     | No | Interest type |
+| `interestRateAnnual`          | number or `null`                                    | No | Annual rate percentage (non-negative) |
+| `paymentAmount`               | number or `null`                                    | No | Scheduled payment amount |
+| `paymentFrequency`            | `WEEKLY` \| `BIWEEKLY` \| `SEMI_MONTHLY` \| `MONTHLY` \| `null` | No | Payment cadence |
+| `termStartDate`               | ISO 8601 date string or `null`                      | No | Loan term start date |
+| `termMaturityDate`            | ISO 8601 date string or `null`                      | No | Loan term maturity date (must be on/after term start) |
+| `originalAmortizationMonths`  | integer or `null`                                   | No | Original amortization in months |
+| `remainingAmortizationMonths` | integer or `null`                                   | No | Remaining amortization in months (cannot exceed original) |
+| `renewalDate`                 | ISO 8601 date string or `null`                      | No | Optional renewal date |
+| `notes`                       | string or `null`                                    | No | Optional notes |
+| `lastVerifiedAt`              | ISO 8601 date string or `null`                      | No | Last metadata verification timestamp |
+| `source`                      | `USER_ENTERED` \| `IMPORTED` \| `SYNCED`            | No | Metadata source (defaults to `USER_ENTERED`) |
+
+**Request Example:**
+
+```json
+{
+  "loanType": "MORTGAGE",
+  "originalPrincipal": 559000,
+  "currentPrincipal": 538830.46,
+  "interestType": "FIXED",
+  "interestRateAnnual": 5.05,
+  "paymentAmount": 1631.86,
+  "paymentFrequency": "SEMI_MONTHLY",
+  "termStartDate": "2024-08-01T00:00:00.000Z",
+  "termMaturityDate": "2027-08-01T00:00:00.000Z",
+  "originalAmortizationMonths": 300,
+  "remainingAmortizationMonths": 279,
+  "renewalDate": "2027-08-01T00:00:00.000Z",
+  "lastVerifiedAt": "2026-04-20T00:00:00.000Z",
+  "source": "USER_ENTERED"
+}
+```
+
+**Response:**
+
+Returns the same shape as `GET /api/accounts/:id`, including `loanDetails`.
+
+**Error Responses:**
+
+| Status | Code               | Condition |
+| ------ | ------------------ | --------- |
+| 400    | `VALIDATION_ERROR` | Invalid field value, invalid enum, invalid date relationship, or non-liability account |
+| 404    | `NOT_FOUND`        | Account ID not found |
+
+**curl Example:**
+
+```bash
+curl -X PATCH http://localhost:3000/api/accounts/clxabc001/loan-details \
+  -H 'Content-Type: application/json' \
+  -d '{"loanType":"MORTGAGE","interestType":"FIXED","interestRateAnnual":5.05,"source":"USER_ENTERED"}'
 ```
 
 ---
@@ -1340,6 +1432,8 @@ curl -X POST http://localhost:3000/api/sync/trigger
 | `GET`    | `/api/dashboard/spending-by-category` | Spending grouped by category       |
 | `GET`    | `/api/accounts`                       | List all active accounts           |
 | `GET`    | `/api/accounts/:id`                   | Get account with recent txns       |
+| `PATCH`  | `/api/accounts/:id/balance`           | Update account balance snapshot    |
+| `PATCH`  | `/api/accounts/:id/loan-details`      | Create/update loan metadata        |
 | `GET`    | `/api/transactions`                   | List transactions (paginated)      |
 | `POST`   | `/api/transactions/import`            | Import transactions from file      |
 | `PATCH`  | `/api/transactions/:id`               | Update transaction category        |

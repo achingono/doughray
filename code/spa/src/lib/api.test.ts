@@ -154,6 +154,43 @@ describe('api client', () => {
     );
   });
 
+  it('patches account loan details as JSON', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: vi.fn().mockResolvedValue({
+        data: {
+          id: 'acc-1',
+          loanDetails: {
+            loanType: 'MORTGAGE',
+            interestType: 'FIXED',
+            interestRateAnnual: 5.05,
+          },
+        },
+      }),
+    });
+
+    await api.updateAccountLoanDetails('acc-1', {
+      loanType: 'MORTGAGE',
+      interestType: 'FIXED',
+      interestRateAnnual: 5.05,
+      source: 'USER_ENTERED',
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/accounts/acc-1/loan-details',
+      expect.objectContaining({
+        method: 'PATCH',
+        body: JSON.stringify({
+          loanType: 'MORTGAGE',
+          interestType: 'FIXED',
+          interestRateAnnual: 5.05,
+          source: 'USER_ENTERED',
+        }),
+      }),
+    );
+  });
+
   it('posts expense analysis report generation', async () => {
     fetchMock.mockResolvedValue({
       ok: true,

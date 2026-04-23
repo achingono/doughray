@@ -14,7 +14,34 @@ export interface AccountDetail extends Account {
   externalId: string;
   institutionDomain: string | null;
   isActive: boolean;
+  loanDetails: LoanDetails | null;
   recentTransactions: TransactionSummary[];
+}
+
+export type LoanType = 'MORTGAGE' | 'AUTO_LOAN' | 'PERSONAL_LOAN' | 'HELOC' | 'OTHER';
+export type InterestType = 'FIXED' | 'VARIABLE';
+export type PaymentFrequency = 'WEEKLY' | 'BIWEEKLY' | 'SEMI_MONTHLY' | 'MONTHLY';
+export type LoanDetailSource = 'USER_ENTERED' | 'IMPORTED' | 'SYNCED';
+
+export interface LoanDetails {
+  loanType: LoanType;
+  originalPrincipal: number | null;
+  currentPrincipal: number | null;
+  interestType: InterestType | null;
+  interestRateAnnual: number | null;
+  paymentAmount: number | null;
+  paymentFrequency: PaymentFrequency | null;
+  termStartDate: string | null;
+  termMaturityDate: string | null;
+  originalAmortizationMonths: number | null;
+  remainingAmortizationMonths: number | null;
+  renewalDate: string | null;
+  notes: string | null;
+  lastVerifiedAt: string | null;
+  source: LoanDetailSource;
+  updatedBy: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface TransactionSummary {
