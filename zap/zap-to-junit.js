@@ -2,7 +2,7 @@
 
 /**
  * Converts OWASP ZAP JSON reports to JUnit XML format.
- * Each ZAP alert becomes a test case; WARN-level alerts pass, FAIL-level alerts fail.
+ * Each ZAP alert becomes a test case; Medium- and High-risk alerts fail, while Low and Informational alerts pass.
  * Usage: node zap-to-junit.js <zap-report.json> <output.xml> [scan-name]
  */
 

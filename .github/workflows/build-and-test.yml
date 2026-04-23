@@ -28,6 +28,7 @@ permissions:
   contents: read
   checks: write
   pull-requests: write
+  issues: write
 
 jobs:
   build-and-test:
@@ -51,7 +52,7 @@ jobs:
 
       - name: Install test reporter dependencies
         working-directory: .github/actions/test-reporter
-        run: npm install
+        run: npm ci
 
       - name: Generate Prisma client
         working-directory: code

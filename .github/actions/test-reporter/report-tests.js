@@ -12,18 +12,23 @@ const COVERAGE_THRESHOLD_VERY_LOW = 0.4;
 const MAX_COVERAGE_ANNOTATIONS = 50;
 
 // GitHub Actions annotations
+function logAnnotation(type, message, properties = '') {
+  const propertySegment = properties ? ` ${properties}` : '';
+  console.log(`::${type}${propertySegment}::${message}`);
+}
+
 function error(message, file, line) {
   const location = file ? `file=${file}${line ? `,line=${line}` : ''}` : '';
-  console.log(`::error ${location}::${message}`);
+  logAnnotation('error', message, location);
 }
 
 function warning(message, file, line) {
   const location = file ? `file=${file}${line ? `,line=${line}` : ''}` : '';
-  console.log(`::warning ${location}::${message}`);
+  logAnnotation('warning', message, location);
 }
 
 function notice(message) {
-  console.log(`::notice ::${message}`);
+  logAnnotation('notice', message);
 }
 
 function createEmptyCoverage() {
@@ -104,12 +109,14 @@ async function parseJUnitFile(filePath) {
     failures: []
   };
 
-  const testsuites = result.testsuites?.testsuite || [];
+  const parsedSuites = result.testsuites?.testsuite ?? result.testsuite ?? [];
+  const testsuites = Array.isArray(parsedSuites) ? parsedSuites : [parsedSuites];
   for (const suite of testsuites) {
-    const tests = parseInt(suite.$.tests || 0);
-    const failures = parseInt(suite.$.failures || 0);
-    const skipped = parseInt(suite.$.skipped || 0);
-    const errors = parseInt(suite.$.errors || 0);
+    const suiteAttrs = suite.$ || {};
+    const tests = parseInt(suiteAttrs.tests || 0);
+    const failures = parseInt(suiteAttrs.failures || 0);
+    const skipped = parseInt(suiteAttrs.skipped || 0);
+    const errors = parseInt(suiteAttrs.errors || 0);
 
     testResults.total += tests;
     testResults.failed += failures + errors;
@@ -121,7 +128,7 @@ async function parseJUnitFile(filePath) {
       const hasFailure = tc.failure || tc.error;
       if (hasFailure) {
         const failNode = (tc.failure || tc.error)[0];
-        const message = typeof failNode === 'string' ? failNode : (failNode.$ ?.message || failNode._ || 'Test failed');
+        const message = typeof failNode === 'string' ? failNode : (failNode.$?.message || failNode._ || 'Test failed');
 
         // Try to extract file and line from the failure message/body
         let file = null;
@@ -134,8 +141,8 @@ async function parseJUnitFile(filePath) {
         }
 
         testResults.failures.push({
-          name: tc.$.name || 'Unknown Test',
-          className: tc.$.classname || suite.$.name || '',
+          name: tc.$?.name || 'Unknown Test',
+          className: tc.$?.classname || suiteAttrs.name || '',
           message: typeof message === 'string' ? message.substring(0, 500) : String(message).substring(0, 500),
           stackTrace: body.substring(0, 2000),
           file,
@@ -377,6 +384,28 @@ async function postPrComment(summary) {
   }
 }
 
+function splitPatterns(rawPatterns) {
+  if (!rawPatterns) return [];
+  return rawPatterns
+    .split(/\r?\n/)
+    .map(pattern => pattern.trim())
+    .filter(Boolean);
+}
+
+async function resolveFilesFromPatterns(patterns) {
+  const resolvedFiles = new Set();
+  for (const pattern of patterns) {
+    const matchedFiles = await glob(pattern, {
+      windowsPathsNoEscape: true,
+      absolute: false
+    });
+    for (const file of matchedFiles) {
+      resolvedFiles.add(file);
+    }
+  }
+  return Array.from(resolvedFiles);
+}
+
 // Main execution
 async function main() {
   try {
@@ -385,12 +414,13 @@ async function main() {
     const reportName = process.env.REPORT_NAME || 'Test Results';
     const failOnError = process.env.FAIL_ON_ERROR === 'true';
 
-    console.log(`Looking for test results: ${testResultsPath}`);
-
-    const files = await glob(testResultsPath, {
-      windowsPathsNoEscape: true,
-      absolute: false
-    });
+    const testResultPatterns = splitPatterns(testResultsPath);
+    if (testResultPatterns.length === 0) {
+      warning('No test result path was provided');
+      return;
+    }
+    console.log(`Looking for test results patterns: ${testResultPatterns.join(', ')}`);
+    const files = await resolveFilesFromPatterns(testResultPatterns);
 
     if (files.length === 0) {
       warning(`No test result files found matching: ${testResultsPath}`);
@@ -420,11 +450,9 @@ async function main() {
     // Parse coverage files if provided
     let allCoverage = null;
     if (coveragePath) {
-      console.log(`Looking for coverage files: ${coveragePath}`);
-      const coverageFiles = await glob(coveragePath, {
-        windowsPathsNoEscape: true,
-        absolute: false
-      });
+      const coveragePatterns = splitPatterns(coveragePath);
+      console.log(`Looking for coverage file patterns: ${coveragePatterns.join(', ')}`);
+      const coverageFiles = await resolveFilesFromPatterns(coveragePatterns);
 
       if (coverageFiles.length > 0) {
         console.log(`Found ${coverageFiles.length} coverage file(s)`);
