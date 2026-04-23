@@ -16,10 +16,13 @@ jobs:
 
     strategy:
       matrix:
-        image:
-          - api
-          - spa
-          - worker
+        include:
+          - image: api
+            platforms: linux/amd64,linux/arm64
+          - image: spa
+            platforms: linux/amd64,linux/arm64
+          - image: worker
+            platforms: linux/amd64
 
     steps:
       - name: Checkout code
@@ -65,4 +68,4 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ matrix.platforms }}
