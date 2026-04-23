@@ -51,7 +51,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ steps.repo-owner.outputs.owner_lc }}/${{ matrix.image }}
+          images: ghcr.io/${{ steps.repo-owner.outputs.owner_lc }}/${{ github.repository }}/${{ matrix.image }}
           tags: |
             type=ref,event=branch
             type=ref,event=pr
