@@ -1,20 +1,37 @@
 name: Sonar Scan
 
 on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'code/**'
+      - 'scripts/sonar/**'
+      - 'sonar-project.properties'
+      - 'docker-compose.yml'
+      - '.github/workflows/sonar-scan.yml'
   pull_request:
     types:
       - opened
       - synchronize
       - reopened
-      - ready_for_review  
-  workflow_dispatch:
+      - ready_for_review
+    paths:
+      - 'code/**'
+      - 'scripts/sonar/**'
+      - 'sonar-project.properties'
+      - 'docker-compose.yml'
+      - '.github/workflows/sonar-scan.yml'
+
+permissions:
+  contents: read
 
 jobs:
   scan:
+    name: SonarQube Scan
     runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false 
-    permissions:
-      contents: write
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft != true
 
     services:
       sonarqube:
@@ -37,9 +54,8 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
-          persist-credentials: true
           fetch-depth: 0
 
       - name: Make Sonar scripts executable
@@ -54,7 +70,36 @@ jobs:
       - name: Create PRDs from discovered issue clusters
         run: scripts/sonar/generate-prds.sh .sonar/issues.json docs
 
+      - name: Add Sonar summary
+        if: always()
+        run: |
+          if [ ! -f .sonar/issues.json ]; then
+            echo "## SonarQube Scan Summary" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "No issues file was produced." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          total=$(jq '.issues | length' .sonar/issues.json)
+          blocker=$(jq '[.issues[] | select(.severity=="BLOCKER")] | length' .sonar/issues.json)
+          critical=$(jq '[.issues[] | select(.severity=="CRITICAL")] | length' .sonar/issues.json)
+          major=$(jq '[.issues[] | select(.severity=="MAJOR")] | length' .sonar/issues.json)
+          minor=$(jq '[.issues[] | select(.severity=="MINOR")] | length' .sonar/issues.json)
+          info=$(jq '[.issues[] | select(.severity=="INFO")] | length' .sonar/issues.json)
+
+          echo "## SonarQube Scan Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Severity | Open Issues |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| --- | ---: |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Total | $total |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Blocker | $blocker |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Critical | $critical |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Major | $major |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Minor | $minor |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Info | $info |" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload Sonar results artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: sonar-scan-results
@@ -66,54 +111,5 @@ jobs:
             .sonar/rule-counts-top20.tsv
             .sonar/top-rule-violations.txt
             docs/sonar-prds
-
-      - name: Install GitHub Copilot CLI
-        run: npm install -g @github/copilot
-          
-      - name: Create unique fix branch
-        id: fix-branch
-        run: |
-          BRANCH_NAME="chore/sonar-auto-fix-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-$(date +%s)"
-          echo "branch=${BRANCH_NAME}" >> "$GITHUB_OUTPUT"
-          git checkout -b "${BRANCH_NAME}"
-
-      - name: Run Copilot CLI to apply Sonar fixes
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          copilot --allow-all --prompt "Read .sonar/issues.json and apply code fixes for all open SonarQube issues in this repository. Keep behavior unchanged, update docs/sonar-prds with scripts/sonar/generate-prds.sh after fixes, and leave the repository in a buildable state."
-
-      - name: Regenerate Sonar artifacts after Copilot fixes
-        run: |
-          scripts/sonar/run-scan.sh
-          scripts/sonar/summarize-issues.sh .sonar/issues.json .sonar
-          scripts/sonar/generate-prds.sh .sonar/issues.json docs
-
-      - name: Commit and push fix branch
-        env:
-          BRANCH_NAME: ${{ steps.fix-branch.outputs.branch }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if [[ -z "$(git status --porcelain)" ]]; then
-            echo "No changes to commit and push."
-            exit 0
-          fi
-          git add -A
-          git commit -m "chore: apply Copilot Sonar fixes (${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT})"
-          git push --set-upstream origin "${BRANCH_NAME}"
-
-      - name: Upload post-fix Sonar results artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: sonar-post-fix-results
-          path: |
-            .sonar/issues.json
-            .sonar/issues.tsv
-            .sonar/issues-top-sample.tsv
-            .sonar/rule-counts.tsv
-            .sonar/rule-counts-top20.tsv
-            .sonar/top-rule-violations.txt
-            docs/sonar-prds
+          if-no-files-found: ignore
+          retention-days: 14

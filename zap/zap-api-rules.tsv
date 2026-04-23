@@ -1,0 +1,11 @@
+# ZAP API Scan Rules for .NET API
+# Format: ruleId	action	name
+# Actions: IGNORE (suppress), WARN (report only), FAIL (fail the scan)
+# Reference: https://www.zaproxy.org/docs/docker/api-scan/
+10021	FAIL	X-Content-Type-Options Header Missing
+90004	FAIL	Cross-Origin-Resource-Policy Header Missing or Invalid
+10063	FAIL	Permissions Policy Header Not Set
+10049	WARN	Storable and Cacheable Content
+100000	WARN	Server Error / Client Error response codes
+100001	WARN	Unexpected Content-Type was returned
+10104	IGNORE	User Agent Fuzzer
