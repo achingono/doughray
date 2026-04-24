@@ -8,13 +8,16 @@ const { prismaMock } = vi.hoisted(() => ({
       findUnique: vi.fn(),
       update: vi.fn(),
     },
+    accountLoanDetails: {
+      upsert: vi.fn(),
+    },
   },
 }));
 
 vi.mock('../lib/prisma', () => ({ prisma: prismaMock }));
 
 import { AppError } from '../middleware/error-handler';
-import { getAccountById, getAllAccounts, updateAccountBalance, updateImportedAccountInstitution } from './account.service';
+import { getAccountById, getAllAccounts, updateAccountBalance, updateImportedAccountInstitution, upsertAccountLoanDetails } from './account.service';
 
 describe('account.service', () => {
   beforeEach(() => {
@@ -67,6 +70,7 @@ describe('account.service', () => {
       balanceDate: new Date('2026-01-02T00:00:00.000Z'),
       isActive: true,
       _count: { transactions: 1 },
+      loanDetails: null,
       transactions: [
         {
           id: 't1',
@@ -84,6 +88,7 @@ describe('account.service', () => {
     expect(result).toEqual(
       expect.objectContaining({
         id: 'a1',
+        loanDetails: null,
         transactionCount: 1,
         recentTransactions: [
           expect.objectContaining({
@@ -111,6 +116,7 @@ describe('account.service', () => {
         balanceDate: new Date('2026-04-14T00:00:00.000Z'),
         isActive: true,
         _count: { transactions: 0 },
+        loanDetails: null,
         transactions: [],
       });
     prismaMock.account.update.mockResolvedValue({ id: 'a1' });
@@ -155,6 +161,7 @@ describe('account.service', () => {
         balanceDate: new Date('2026-04-14T00:00:00.000Z'),
         isActive: true,
         _count: { transactions: 0 },
+        loanDetails: null,
         transactions: [],
       });
     prismaMock.account.update.mockResolvedValue({ id: 'a1' });
@@ -173,5 +180,89 @@ describe('account.service', () => {
 
     await expect(updateImportedAccountInstitution('a1', { institution: 'Bank X' })).rejects.toBeInstanceOf(AppError);
     expect(prismaMock.account.update).not.toHaveBeenCalled();
+  });
+
+  it('upserts loan details for liability accounts', async () => {
+    prismaMock.account.findUnique
+      .mockResolvedValueOnce({ id: 'a1', type: 'MORTGAGE' })
+      .mockResolvedValueOnce({
+        id: 'a1',
+        externalId: 'ext-1',
+        name: 'Mortgage',
+        institution: 'Bank',
+        institutionDomain: null,
+        type: 'MORTGAGE',
+        currency: 'USD',
+        balance: new Decimal('-500000'),
+        availableBalance: null,
+        balanceDate: new Date('2026-04-14T00:00:00.000Z'),
+        isActive: true,
+        _count: { transactions: 0 },
+        loanDetails: {
+          accountId: 'a1',
+          loanType: 'MORTGAGE',
+          originalPrincipal: new Decimal('559000'),
+          currentPrincipal: new Decimal('538830.46'),
+          interestType: 'FIXED',
+          interestRateAnnual: new Decimal('5.05'),
+          paymentAmount: new Decimal('1631.86'),
+          paymentFrequency: 'SEMI_MONTHLY',
+          termStartDate: new Date('2024-08-01T00:00:00.000Z'),
+          termMaturityDate: new Date('2027-08-01T00:00:00.000Z'),
+          originalAmortizationMonths: 300,
+          remainingAmortizationMonths: 279,
+          renewalDate: new Date('2027-08-01T00:00:00.000Z'),
+          notes: 'Manual import',
+          lastVerifiedAt: new Date('2026-04-20T00:00:00.000Z'),
+          source: 'USER_ENTERED',
+          updatedBy: 'system',
+          createdAt: new Date('2026-04-14T00:00:00.000Z'),
+          updatedAt: new Date('2026-04-20T00:00:00.000Z'),
+        },
+        transactions: [],
+      });
+    prismaMock.accountLoanDetails.upsert.mockResolvedValue({ accountId: 'a1' });
+
+    const result = await upsertAccountLoanDetails('a1', {
+      loanType: 'MORTGAGE',
+      originalPrincipal: 559000,
+      currentPrincipal: 538830.46,
+      interestType: 'FIXED',
+      interestRateAnnual: 5.05,
+      paymentAmount: 1631.86,
+      paymentFrequency: 'SEMI_MONTHLY',
+      originalAmortizationMonths: 300,
+      remainingAmortizationMonths: 279,
+      source: 'USER_ENTERED',
+    });
+
+    expect(prismaMock.accountLoanDetails.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { accountId: 'a1' },
+        update: expect.objectContaining({ updatedBy: 'system' }),
+        create: expect.objectContaining({ accountId: 'a1', updatedBy: 'system' }),
+      }),
+    );
+    expect(result).toEqual(
+      expect.objectContaining({
+        id: 'a1',
+        loanDetails: expect.objectContaining({
+          loanType: 'MORTGAGE',
+          originalPrincipal: 559000,
+          currentPrincipal: 538830.46,
+        }),
+      }),
+    );
+  });
+
+  it('rejects loan details updates for non-liability accounts', async () => {
+    prismaMock.account.findUnique.mockResolvedValue({ id: 'a1', type: 'CHECKING' });
+
+    await expect(
+      upsertAccountLoanDetails('a1', {
+        loanType: 'MORTGAGE',
+      }),
+    ).rejects.toBeInstanceOf(AppError);
+    expect(prismaMock.accountLoanDetails.upsert).not.toHaveBeenCalled();
   });
 });

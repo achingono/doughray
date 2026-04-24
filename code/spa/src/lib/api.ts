@@ -58,6 +58,26 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify(data),
     }),
+  updateAccountLoanDetails: (id: string, data: {
+    loanType: import('../types').LoanType;
+    originalPrincipal?: number | null;
+    currentPrincipal?: number | null;
+    interestType?: import('../types').InterestType | null;
+    interestRateAnnual?: number | null;
+    paymentAmount?: number | null;
+    paymentFrequency?: import('../types').PaymentFrequency | null;
+    termStartDate?: string | null;
+    termMaturityDate?: string | null;
+    originalAmortizationMonths?: number | null;
+    remainingAmortizationMonths?: number | null;
+    renewalDate?: string | null;
+    notes?: string | null;
+    lastVerifiedAt?: string | null;
+    source?: import('../types').LoanDetailSource;
+  }) => request<{ data: import('../types').AccountDetail }>(`/accounts/${id}/loan-details`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  }),
 
   // Transactions
   getTransactions: (params: {

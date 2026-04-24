@@ -28,10 +28,36 @@ model Account {
   transactions Transaction[]
   categoryRules CategoryRule[]
   goalAccounts GoalAccount[]
+  loanDetails AccountLoanDetails?
   netWorthSnapshots AccountNetWorthSnapshot[]
 
   @@index([type])
   @@index([isActive])
+}
+
+model AccountLoanDetails {
+  accountId                    String           @id
+  account                      Account          @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  loanType                     LoanType
+  originalPrincipal            Decimal?         @db.Decimal(15, 2)
+  currentPrincipal             Decimal?         @db.Decimal(15, 2)
+  interestType                 InterestType?
+  interestRateAnnual           Decimal?         @db.Decimal(7, 4)
+  paymentAmount                Decimal?         @db.Decimal(15, 2)
+  paymentFrequency             PaymentFrequency?
+  termStartDate                DateTime?
+  termMaturityDate             DateTime?
+  originalAmortizationMonths   Int?
+  remainingAmortizationMonths  Int?
+  renewalDate                  DateTime?
+  notes                        String?
+  lastVerifiedAt               DateTime?
+  source                       LoanDetailSource @default(USER_ENTERED)
+  updatedBy                    String?
+  createdAt                    DateTime         @default(now())
+  updatedAt                    DateTime         @updatedAt
+
+  @@index([loanType])
 }
 
 model Transaction {
@@ -203,6 +229,32 @@ enum GoalStatus {
   COMPLETED
   PAUSED
   CANCELLED
+}
+
+enum LoanType {
+  MORTGAGE
+  AUTO_LOAN
+  PERSONAL_LOAN
+  HELOC
+  OTHER
+}
+
+enum InterestType {
+  FIXED
+  VARIABLE
+}
+
+enum PaymentFrequency {
+  WEEKLY
+  BIWEEKLY
+  SEMI_MONTHLY
+  MONTHLY
+}
+
+enum LoanDetailSource {
+  USER_ENTERED
+  IMPORTED
+  SYNCED
 }
 
 model Asset {

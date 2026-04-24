@@ -12,3 +12,12 @@ export async function getSyncHistory(limit: number = 10) {
     take: limit,
   });
 }
+
+export async function triggerSync() {
+  const log = await prisma.syncLog.create({
+    data: {
+      status: 'RUNNING',
+    },
+  });
+  return log;
+}

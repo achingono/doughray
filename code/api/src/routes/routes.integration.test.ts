@@ -20,6 +20,7 @@ const { accountServiceMock } = vi.hoisted(() => ({
     getAccountById: vi.fn(),
     updateAccountBalance: vi.fn(),
     updateImportedAccountInstitution: vi.fn(),
+    upsertAccountLoanDetails: vi.fn(),
   },
 }));
 const { transactionServiceMock } = vi.hoisted(() => ({
@@ -96,6 +97,7 @@ const { syncServiceMock } = vi.hoisted(() => ({
   syncServiceMock: {
     getLatestSync: vi.fn(),
     getSyncHistory: vi.fn(),
+    triggerSync: vi.fn(),
   },
 }));
 const { assetServiceMock } = vi.hoisted(() => ({
@@ -160,15 +162,29 @@ describe('API route integration', () => {
     accountServiceMock.getAccountById.mockResolvedValueOnce({ id: 'a1' }).mockResolvedValueOnce(null);
     accountServiceMock.updateAccountBalance.mockResolvedValueOnce({ id: 'a1', balance: 100 }).mockResolvedValueOnce(null);
     accountServiceMock.updateImportedAccountInstitution.mockResolvedValueOnce({ id: 'a1', institution: 'Excel Import' }).mockResolvedValueOnce(null);
+    accountServiceMock.upsertAccountLoanDetails.mockResolvedValueOnce({
+      id: 'a1',
+      loanDetails: { loanType: 'MORTGAGE', source: 'USER_ENTERED' },
+    }).mockResolvedValueOnce(null);
 
     await request(app).get('/api/accounts').expect(200).expect({ data: [{ id: 'a1' }] });
     await request(app).get('/api/accounts/a1').expect(200).expect({ data: { id: 'a1' } });
     await request(app).patch('/api/accounts/a1/balance').send({ balance: 100, availableBalance: null, balanceDate: '2026-04-14T00:00:00.000Z' }).expect(200).expect({ data: { id: 'a1', balance: 100 } });
     await request(app).patch('/api/accounts/a1/institution').send({ institution: 'Excel Import' }).expect(200).expect({ data: { id: 'a1', institution: 'Excel Import' } });
+    await request(app)
+      .patch('/api/accounts/a1/loan-details')
+      .send({ loanType: 'MORTGAGE', interestRateAnnual: 5.05, source: 'USER_ENTERED' })
+      .expect(200)
+      .expect({ data: { id: 'a1', loanDetails: { loanType: 'MORTGAGE', source: 'USER_ENTERED' } } });
     await request(app).patch('/api/accounts/a1/balance').send({}).expect(400);
     await request(app).patch('/api/accounts/a1/institution').send({ institution: '' }).expect(400);
+    await request(app)
+      .patch('/api/accounts/a1/loan-details')
+      .send({ loanType: 'MORTGAGE', termStartDate: '2027-08-01T00:00:00.000Z', termMaturityDate: '2024-08-01T00:00:00.000Z' })
+      .expect(400);
     await request(app).patch('/api/accounts/missing/balance').send({ balance: 100 }).expect(404);
     await request(app).patch('/api/accounts/missing/institution').send({ institution: 'Any' }).expect(404);
+    await request(app).patch('/api/accounts/missing/loan-details').send({ loanType: 'MORTGAGE' }).expect(404);
     await request(app).get('/api/accounts/missing').expect(404);
   });
 
@@ -347,6 +363,7 @@ describe('API route integration', () => {
     expenseAnalysisServiceMock.generateExpenseAnalysis.mockResolvedValue({ id: 'sea1', type: 'SPENDING_ANALYSIS' });
     syncServiceMock.getLatestSync.mockResolvedValue({ id: 's1' });
     syncServiceMock.getSyncHistory.mockResolvedValue([{ id: 's1' }]);
+    syncServiceMock.triggerSync.mockResolvedValue({ id: 's2', status: 'RUNNING' });
 
     await request(app).get('/api/budgets').expect(200);
     await request(app)
