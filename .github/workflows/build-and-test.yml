@@ -58,13 +58,13 @@ jobs:
         working-directory: code
         run: npm run db:generate
 
-      - name: Run unit and integration tests
+      - name: Run unit and integration tests with coverage
         working-directory: code
         run: |
           mkdir -p test-results/api test-results/spa test-results/worker
-          npm run test --workspace=api -- --reporter=default --reporter=junit --outputFile=../test-results/api/results.xml
-          npm run test --workspace=spa -- --reporter=default --reporter=junit --outputFile=../test-results/spa/results.xml
-          npm run test --workspace=worker -- --reporter=default --reporter=junit --outputFile=../test-results/worker/results.xml
+          npm run test --workspace=api -- --reporter=default --reporter=junit --outputFile=../test-results/api/results.xml --coverage
+          npm run test --workspace=spa -- --reporter=default --reporter=junit --outputFile=../test-results/spa/results.xml --coverage
+          npm run test --workspace=worker -- --reporter=default --reporter=junit --outputFile=../test-results/worker/results.xml --coverage
 
       - name: Build all workspaces
         working-directory: code
@@ -201,6 +201,10 @@ jobs:
             code/test-results/**/*.xml
             code/spa/test-results/*.xml
             zap-reports/junit/*.xml
+          coverage-path: |
+            code/api/coverage/coverage-summary.json
+            code/spa/coverage/coverage-summary.json
+            code/worker/coverage/coverage-summary.json
           name: Build and Test Results
           fail-on-error: false
 
@@ -231,6 +235,18 @@ jobs:
           name: owasp-zap-reports
           path: |
             zap-reports/
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Upload code coverage reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-coverage-reports
+          path: |
+            code/api/coverage/
+            code/spa/coverage/
+            code/worker/coverage/
           retention-days: 14
           if-no-files-found: ignore
 

@@ -5,7 +5,7 @@ inputs:
     description: 'Path to test results file(s) - supports glob patterns'
     required: true
   coverage-path:
-    description: 'Path to code coverage file(s) in Cobertura XML format - supports glob patterns'
+    description: 'Path to code coverage file(s) (Cobertura XML or Vitest coverage-summary.json) - supports glob patterns'
     required: false
     default: ''
   name:

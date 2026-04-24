@@ -90,10 +90,18 @@ function createEmptyCoverage() {
   };
 }
 
+function asPercent(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return 0;
+  return num > 1 ? num / 100 : num;
+}
+
 // Parse Cobertura coverage file
-async function parseCoberturaFile(filePath) {
+async function parseCoberturaFile(filePath, content) {
   try {
-    const content = fs.readFileSync(filePath, 'utf8');
+    if (!content) {
+      content = fs.readFileSync(filePath, 'utf8');
+    }
     const result = await parseStringPromise(content);
     const coverage = createEmptyCoverage();
 
@@ -141,6 +149,80 @@ async function parseCoberturaFile(filePath) {
     console.log(`Warning: Failed to parse coverage file ${filePath}: ${err.message}`);
     return createEmptyCoverage();
   }
+}
+
+function parseJsonSummaryCoverage(filePath) {
+  try {
+    const content = fs.readFileSync(filePath, 'utf8');
+    const result = JSON.parse(content);
+    const coverage = createEmptyCoverage();
+    const total = result.total || {};
+
+    coverage.linesCovered = parseInt(total.lines?.covered || 0, 10) || 0;
+    coverage.linesValid = parseInt(total.lines?.total || 0, 10) || 0;
+    coverage.branchesCovered = parseInt(total.branches?.covered || 0, 10) || 0;
+    coverage.branchesValid = parseInt(total.branches?.total || 0, 10) || 0;
+    coverage.lineRate = coverage.linesValid > 0
+      ? coverage.linesCovered / coverage.linesValid
+      : asPercent(total.lines?.pct);
+    coverage.branchRate = coverage.branchesValid > 0
+      ? coverage.branchesCovered / coverage.branchesValid
+      : asPercent(total.branches?.pct);
+
+    // Get the directory containing the coverage file for path normalization
+    const coverageDir = path.dirname(filePath);
+    const workspaceDir = path.dirname(path.relative(process.cwd(), filePath)) || '.';
+
+    for (const [fileName, entry] of Object.entries(result)) {
+      if (fileName === 'total' || !entry || typeof entry !== 'object') continue;
+      const lineRate = entry.lines?.total > 0
+        ? (entry.lines.covered || 0) / entry.lines.total
+        : asPercent(entry.lines?.pct);
+      const branchRate = entry.branches?.total > 0
+        ? (entry.branches.covered || 0) / entry.branches.total
+        : asPercent(entry.branches?.pct);
+
+      // Normalize the file path: resolve relative to the coverage file's directory
+      // and then make it relative to the workspace root for consistency
+      let normalizedPath;
+      if (path.isAbsolute(fileName)) {
+        // If fileName is already absolute, make it relative to cwd
+        normalizedPath = path.relative(process.cwd(), fileName);
+      } else {
+        // If fileName is relative, resolve it from the coverage file's directory
+        // then make it relative to cwd for a repo-root-relative path
+        normalizedPath = path.relative(process.cwd(), path.resolve(coverageDir, fileName));
+      }
+      const displayName = path.basename(fileName);
+
+      coverage.files.push({
+        name: normalizedPath,
+        displayName,
+        lineRate,
+        branchRate,
+        uncoveredLines: []
+      });
+    }
+
+    return coverage;
+  } catch (err) {
+    console.log(`Warning: Failed to parse JSON coverage file ${filePath}: ${err.message}`);
+    return createEmptyCoverage();
+  }
+}
+
+async function parseCoverageFile(filePath) {
+  const extension = path.extname(filePath).toLowerCase();
+  if (extension === '.json') {
+    return parseJsonSummaryCoverage(filePath);
+  }
+
+  const content = fs.readFileSync(filePath, 'utf8').trimStart();
+  if (content.startsWith('{')) {
+    return parseJsonSummaryCoverage(filePath);
+  }
+
+  return parseCoberturaFile(filePath);
 }
 
 // Parse JUnit XML file (Playwright reporter output)
@@ -508,7 +590,7 @@ async function main() {
         for (const file of coverageFiles) {
           console.log(`Parsing coverage: ${file}`);
           try {
-            const coverage = await parseCoberturaFile(file);
+            const coverage = await parseCoverageFile(file);
             allCoverage.linesCovered += coverage.linesCovered;
             allCoverage.linesValid += coverage.linesValid;
             allCoverage.branchesCovered += coverage.branchesCovered;
@@ -541,15 +623,22 @@ async function main() {
         const sortedFiles = allCoverage.files.slice().sort((a, b) => a.lineRate - b.lineRate);
         for (const file of sortedFiles) {
           if (annotationCount >= MAX_COVERAGE_ANNOTATIONS) break;
-          if (file.lineRate < COVERAGE_THRESHOLD_VERY_LOW && file.uncoveredLines.length > 0) {
-            const lineRange = file.uncoveredLines.length > 5
-              ? `${file.uncoveredLines.slice(0, 5).join(', ')}, ...`
-              : file.uncoveredLines.join(', ');
-            warning(
-              `Low coverage: ${(file.lineRate * 100).toFixed(1)}% - ${file.uncoveredLines.length} uncovered lines (${lineRange})`,
-              file.name,
-              file.uncoveredLines[0]
-            );
+          if (file.lineRate < COVERAGE_THRESHOLD_VERY_LOW) {
+            if (file.uncoveredLines.length > 0) {
+              const lineRange = file.uncoveredLines.length > 5
+                ? `${file.uncoveredLines.slice(0, 5).join(', ')}, ...`
+                : file.uncoveredLines.join(', ');
+              warning(
+                `Low coverage: ${(file.lineRate * 100).toFixed(1)}% - ${file.uncoveredLines.length} uncovered lines (${lineRange})`,
+                file.name,
+                file.uncoveredLines[0]
+              );
+            } else {
+              warning(
+                `Low coverage: ${(file.lineRate * 100).toFixed(1)}% line coverage`,
+                file.name
+              );
+            }
             annotationCount++;
           }
         }
