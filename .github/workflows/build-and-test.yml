@@ -114,7 +114,7 @@ jobs:
             -v "${{ github.workspace }}/zap-reports:/zap/wrk:rw" \
             -v "${{ github.workspace }}/zap:/zap/rules:ro" \
             -u root \
-            ghcr.io/zaproxy/zaproxy:2.15.0 \
+            ghcr.io/zaproxy/zaproxy:2.16.0 \
             zap-baseline.py \
               -t http://localhost \
               -c /zap/rules/zap-baseline-rules.tsv \
@@ -129,7 +129,7 @@ jobs:
             -v "${{ github.workspace }}/zap-reports:/zap/wrk:rw" \
             -v "${{ github.workspace }}/zap:/zap/rules:ro" \
             -u root \
-            ghcr.io/zaproxy/zaproxy:2.15.0 \
+            ghcr.io/zaproxy/zaproxy:2.16.0 \
             zap-baseline.py \
               -t http://localhost:3000/api/health \
               -c /zap/rules/zap-api-rules.tsv \

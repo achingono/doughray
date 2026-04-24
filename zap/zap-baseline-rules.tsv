@@ -8,6 +8,7 @@
 10063	FAIL	Permissions Policy Header Not Set
 90003	FAIL	Sub Resource Integrity Attribute Missing
 90004	FAIL	Cross-Origin-*-Policy Header Missing or Invalid
+10055	IGNORE	CSP: Wildcard Directive
 10116	IGNORE	ZAP is Out of Date
 10049	WARN	Storable and Cacheable Content
 10109	IGNORE	Modern Web Application
