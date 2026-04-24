@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { formatCurrency, formatDate } from "@/lib/formatters";
-import { ACCOUNT_TYPE_LABELS, type AccountDetail as AccountDetailType, type LoanDetailSource, type LoanType, type InterestType, type PaymentFrequency } from "@/types";
+import { ACCOUNT_TYPE_LABELS, LIABILITY_TYPES, type AccountDetail as AccountDetailType, type LoanDetailSource, type LoanType, type InterestType, type PaymentFrequency } from "@/types";
 import { api } from "@/lib/api";
 import { Pencil } from "lucide-react";
 import { toast } from "sonner";
@@ -20,7 +20,6 @@ interface AccountDetailProps {
 }
 
 const LOADING_ROW_KEYS = ['account-detail-loading-1', 'account-detail-loading-2', 'account-detail-loading-3', 'account-detail-loading-4', 'account-detail-loading-5'] as const;
-const LIABILITY_TYPES = new Set(['CREDIT_CARD', 'LOAN', 'MORTGAGE']);
 
 const LOAN_TYPE_LABELS: Record<LoanType, string> = {
   MORTGAGE: 'Mortgage',
@@ -60,6 +59,13 @@ function parseOptionalNumber(value: string): number | null {
   const trimmed = value.trim();
   if (!trimmed) return null;
   const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : Number.NaN;
+}
+
+function parseOptionalInteger(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = parseInt(trimmed, 10);
   return Number.isFinite(parsed) ? parsed : Number.NaN;
 }
 
@@ -206,7 +212,7 @@ export function AccountDetail({ accountId, open, onClose, onAccountUpdated }: Re
   const canEditInstitution = Boolean(
     account && (account.externalId.startsWith('manual-import:') || account.externalId.startsWith('excel-import:')),
   );
-  const canEditLoanDetails = Boolean(account && LIABILITY_TYPES.has(account.type));
+  const canEditLoanDetails = Boolean(account && LIABILITY_TYPES.includes(account.type));
 
   const handleLoanSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -216,8 +222,8 @@ export function AccountDetail({ accountId, open, onClose, onAccountUpdated }: Re
     const parsedCurrentPrincipal = parseOptionalNumber(currentPrincipal);
     const parsedInterestRateAnnual = parseOptionalNumber(interestRateAnnual);
     const parsedPaymentAmount = parseOptionalNumber(paymentAmount);
-    const parsedOriginalAmortizationMonths = parseOptionalNumber(originalAmortizationMonths);
-    const parsedRemainingAmortizationMonths = parseOptionalNumber(remainingAmortizationMonths);
+    const parsedOriginalAmortizationMonths = parseOptionalInteger(originalAmortizationMonths);
+    const parsedRemainingAmortizationMonths = parseOptionalInteger(remainingAmortizationMonths);
     const numericValues = [
       { label: 'Original principal', value: parsedOriginalPrincipal },
       { label: 'Current principal', value: parsedCurrentPrincipal },
@@ -229,6 +235,14 @@ export function AccountDetail({ accountId, open, onClose, onAccountUpdated }: Re
     const invalid = numericValues.find((item) => Number.isNaN(item.value));
     if (invalid) {
       setLoanError(`${invalid.label} must be a valid number.`);
+      return;
+    }
+    if (parsedOriginalAmortizationMonths !== null && !Number.isInteger(parsedOriginalAmortizationMonths)) {
+      setLoanError('Original amortization months must be a whole number.');
+      return;
+    }
+    if (parsedRemainingAmortizationMonths !== null && !Number.isInteger(parsedRemainingAmortizationMonths)) {
+      setLoanError('Remaining amortization months must be a whole number.');
       return;
     }
 

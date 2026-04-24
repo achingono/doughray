@@ -447,13 +447,13 @@ Creates or updates loan metadata for a liability account (`CREDIT_CARD`, `LOAN`,
 | `interestRateAnnual`          | number or `null`                                    | No | Annual rate percentage (non-negative) |
 | `paymentAmount`               | number or `null`                                    | No | Scheduled payment amount |
 | `paymentFrequency`            | `WEEKLY` \| `BIWEEKLY` \| `SEMI_MONTHLY` \| `MONTHLY` \| `null` | No | Payment cadence |
-| `termStartDate`               | ISO 8601 date string or `null`                      | No | Loan term start date |
-| `termMaturityDate`            | ISO 8601 date string or `null`                      | No | Loan term maturity date (must be on/after term start) |
+| `termStartDate`               | ISO 8601 datetime string or `null`                  | No | Loan term start date (e.g., `2026-04-20T00:00:00.000Z`) |
+| `termMaturityDate`            | ISO 8601 datetime string or `null`                  | No | Loan term maturity date (must be on/after term start, e.g., `2026-04-20T00:00:00.000Z`) |
 | `originalAmortizationMonths`  | integer or `null`                                   | No | Original amortization in months |
 | `remainingAmortizationMonths` | integer or `null`                                   | No | Remaining amortization in months (cannot exceed original) |
-| `renewalDate`                 | ISO 8601 date string or `null`                      | No | Optional renewal date |
+| `renewalDate`                 | ISO 8601 datetime string or `null`                  | No | Optional renewal date (e.g., `2026-04-20T00:00:00.000Z`) |
 | `notes`                       | string or `null`                                    | No | Optional notes |
-| `lastVerifiedAt`              | ISO 8601 date string or `null`                      | No | Last metadata verification timestamp |
+| `lastVerifiedAt`              | ISO 8601 datetime string or `null`                  | No | Last metadata verification timestamp (e.g., `2026-04-20T00:00:00.000Z`) |
 | `source`                      | `USER_ENTERED` \| `IMPORTED` \| `SYNCED`            | No | Metadata source (defaults to `USER_ENTERED`) |
 
 **Request Example:**
