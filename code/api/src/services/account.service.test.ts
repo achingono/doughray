@@ -11,13 +11,29 @@ const { prismaMock } = vi.hoisted(() => ({
     accountLoanDetails: {
       upsert: vi.fn(),
     },
+    accountRegisteredDetails: {
+      upsert: vi.fn(),
+    },
+    accountCreditCardDetails: {
+      upsert: vi.fn(),
+    },
   },
 }));
 
 vi.mock('../lib/prisma', () => ({ prisma: prismaMock }));
 
 import { AppError } from '../middleware/error-handler';
-import { getAccountById, getAllAccounts, updateAccountBalance, updateImportedAccountInstitution, upsertAccountLoanDetails } from './account.service';
+import {
+  getAccountById,
+  getAccountCreditCardDetails,
+  getAccountRegisteredDetails,
+  getAllAccounts,
+  updateAccountBalance,
+  updateImportedAccountInstitution,
+  upsertAccountCreditCardDetails,
+  upsertAccountLoanDetails,
+  upsertAccountRegisteredDetails,
+} from './account.service';
 
 describe('account.service', () => {
   beforeEach(() => {
@@ -71,6 +87,8 @@ describe('account.service', () => {
       isActive: true,
       _count: { transactions: 1 },
       loanDetails: null,
+      registeredDetails: null,
+      creditCardDetails: null,
       transactions: [
         {
           id: 't1',
@@ -89,6 +107,11 @@ describe('account.service', () => {
       expect.objectContaining({
         id: 'a1',
         loanDetails: null,
+        registeredDetails: null,
+        creditCardDetails: null,
+        investmentDetails: null,
+        savingsDetails: null,
+        genericMetadata: null,
         transactionCount: 1,
         recentTransactions: [
           expect.objectContaining({
@@ -117,6 +140,8 @@ describe('account.service', () => {
         isActive: true,
         _count: { transactions: 0 },
         loanDetails: null,
+        registeredDetails: null,
+        creditCardDetails: null,
         transactions: [],
       });
     prismaMock.account.update.mockResolvedValue({ id: 'a1' });
@@ -162,6 +187,8 @@ describe('account.service', () => {
         isActive: true,
         _count: { transactions: 0 },
         loanDetails: null,
+        registeredDetails: null,
+        creditCardDetails: null,
         transactions: [],
       });
     prismaMock.account.update.mockResolvedValue({ id: 'a1' });
@@ -219,6 +246,8 @@ describe('account.service', () => {
           createdAt: new Date('2026-04-14T00:00:00.000Z'),
           updatedAt: new Date('2026-04-20T00:00:00.000Z'),
         },
+        registeredDetails: null,
+        creditCardDetails: null,
         transactions: [],
       });
     prismaMock.accountLoanDetails.upsert.mockResolvedValue({ accountId: 'a1' });
@@ -264,5 +293,208 @@ describe('account.service', () => {
       }),
     ).rejects.toBeInstanceOf(AppError);
     expect(prismaMock.accountLoanDetails.upsert).not.toHaveBeenCalled();
+  });
+
+  it('gets registered details with staleness', async () => {
+    prismaMock.account.findUnique.mockResolvedValue({
+      id: 'a-reg',
+      registeredDetails: {
+        accountId: 'a-reg',
+        registrationType: 'RRSP',
+        annualContributionLimit: new Decimal('31560'),
+        totalContributionRoom: new Decimal('42000'),
+        contributedThisYear: new Decimal('6000'),
+        unusedCarryforward: new Decimal('36000'),
+        beneficiaryName: null,
+        beneficiaryDateOfBirth: null,
+        grantRoomAvailable: null,
+        grantsReceived: null,
+        subscriptionLimit: null,
+        verificationSource: 'CRA_NOTICE_OF_ASSESSMENT',
+        lastVerifiedAt: new Date('2026-03-15T00:00:00.000Z'),
+        notes: 'NOA',
+        createdAt: new Date('2026-03-15T10:22:00.000Z'),
+        updatedAt: new Date('2026-04-10T14:50:00.000Z'),
+      },
+    });
+
+    const result = await getAccountRegisteredDetails('a-reg');
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        accountId: 'a-reg',
+        registrationType: 'RRSP',
+        annualContributionLimit: 31560,
+        staleness: expect.objectContaining({
+          isStale: false,
+        }),
+      }),
+    );
+  });
+
+  it('upserts registered details and validates contribution room totals', async () => {
+    prismaMock.account.findUnique
+      .mockResolvedValueOnce({ id: 'a-reg' })
+      .mockResolvedValueOnce({
+        id: 'a-reg',
+        registeredDetails: {
+          accountId: 'a-reg',
+          registrationType: 'RRSP',
+          annualContributionLimit: new Decimal('31560'),
+          totalContributionRoom: new Decimal('42000'),
+          contributedThisYear: new Decimal('6000'),
+          unusedCarryforward: new Decimal('36000'),
+          beneficiaryName: null,
+          beneficiaryDateOfBirth: null,
+          grantRoomAvailable: null,
+          grantsReceived: null,
+          subscriptionLimit: null,
+          verificationSource: 'CRA_NOTICE_OF_ASSESSMENT',
+          lastVerifiedAt: new Date('2026-03-15T00:00:00.000Z'),
+          notes: null,
+          createdAt: new Date('2026-03-15T10:22:00.000Z'),
+          updatedAt: new Date('2026-04-10T14:50:00.000Z'),
+        },
+      });
+    prismaMock.accountRegisteredDetails.upsert.mockResolvedValue({ accountId: 'a-reg' });
+
+    const result = await upsertAccountRegisteredDetails('a-reg', {
+      registrationType: 'RRSP',
+      annualContributionLimit: 31560,
+      totalContributionRoom: 42000,
+      contributedThisYear: 6000,
+      unusedCarryforward: 36000,
+      verificationSource: 'CRA_NOTICE_OF_ASSESSMENT',
+      lastVerifiedAt: new Date('2026-03-15T00:00:00.000Z'),
+    });
+
+    expect(prismaMock.accountRegisteredDetails.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { accountId: 'a-reg' },
+      }),
+    );
+    expect(result).toEqual(expect.objectContaining({ accountId: 'a-reg' }));
+
+    prismaMock.account.findUnique.mockResolvedValueOnce({ id: 'a-reg' });
+    await expect(
+      upsertAccountRegisteredDetails('a-reg', {
+        registrationType: 'RRSP',
+        totalContributionRoom: 40000,
+        contributedThisYear: 6000,
+        unusedCarryforward: 36000,
+        lastVerifiedAt: new Date('2026-03-15T00:00:00.000Z'),
+      }),
+    ).rejects.toBeInstanceOf(AppError);
+  });
+
+  it('rejects RESP upsert when beneficiary fields are incomplete', async () => {
+    prismaMock.account.findUnique.mockResolvedValue({ id: 'a-resp' });
+
+    await expect(
+      upsertAccountRegisteredDetails('a-resp', {
+        registrationType: 'RESP',
+        beneficiaryName: 'Emma',
+        beneficiaryDateOfBirth: null,
+        lastVerifiedAt: new Date('2026-04-20T00:00:00.000Z'),
+      }),
+    ).rejects.toBeInstanceOf(AppError);
+  });
+
+  it('gets credit card details with utilization warning', async () => {
+    prismaMock.account.findUnique.mockResolvedValue({
+      id: 'a-cc',
+      creditCardDetails: {
+        accountId: 'a-cc',
+        creditLimit: new Decimal('5000'),
+        currentUtilization: new Decimal('45.5'),
+        annualPercentageRate: new Decimal('19.99'),
+        minimumPaymentDueDate: 21,
+        lastStatementBalance: new Decimal('2275'),
+        lastStatementDate: new Date('2026-04-15T00:00:00.000Z'),
+        hasAnnualFee: true,
+        annualFeeAmount: new Decimal('139'),
+        rewardsProgram: 'CASH_BACK',
+        rewardsRate: new Decimal('1.5'),
+        rewardsRedeemedThisYear: new Decimal('120'),
+        issuingBank: 'TD',
+        cardType: 'CREDIT',
+        verificationSource: 'INSTITUTION_STATEMENT',
+        lastVerifiedAt: new Date('2026-04-15T00:00:00.000Z'),
+        notes: 'TD Infinite Card',
+        createdAt: new Date('2026-04-15T12:00:00.000Z'),
+        updatedAt: new Date('2026-04-15T12:00:00.000Z'),
+      },
+    });
+
+    const result = await getAccountCreditCardDetails('a-cc');
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        accountId: 'a-cc',
+        currentUtilization: 45.5,
+        utilization: {
+          isHigh: true,
+          warningMessage: 'Credit utilization at 45.5%. Maintaining above 30% utilization may impact credit score.',
+        },
+      }),
+    );
+  });
+
+  it('upserts credit card details and validates utilization range', async () => {
+    prismaMock.account.findUnique
+      .mockResolvedValueOnce({ id: 'a-cc', type: 'CREDIT_CARD' })
+      .mockResolvedValueOnce({
+        id: 'a-cc',
+        creditCardDetails: {
+          accountId: 'a-cc',
+          creditLimit: new Decimal('5000'),
+          currentUtilization: new Decimal('45.5'),
+          annualPercentageRate: new Decimal('19.99'),
+          minimumPaymentDueDate: 21,
+          lastStatementBalance: new Decimal('2275'),
+          lastStatementDate: new Date('2026-04-15T00:00:00.000Z'),
+          hasAnnualFee: true,
+          annualFeeAmount: new Decimal('139'),
+          rewardsProgram: 'CASH_BACK',
+          rewardsRate: new Decimal('1.5'),
+          rewardsRedeemedThisYear: new Decimal('120'),
+          issuingBank: 'TD',
+          cardType: 'CREDIT',
+          verificationSource: 'INSTITUTION_STATEMENT',
+          lastVerifiedAt: new Date('2026-04-15T00:00:00.000Z'),
+          notes: null,
+          createdAt: new Date('2026-04-15T12:00:00.000Z'),
+          updatedAt: new Date('2026-04-15T12:00:00.000Z'),
+        },
+      });
+    prismaMock.accountCreditCardDetails.upsert.mockResolvedValue({ accountId: 'a-cc' });
+
+    const result = await upsertAccountCreditCardDetails('a-cc', {
+      creditLimit: 5000,
+      currentUtilization: 45.5,
+      annualPercentageRate: 19.99,
+      minimumPaymentDueDate: 21,
+      lastStatementBalance: 2275,
+      verificationSource: 'INSTITUTION_STATEMENT',
+      lastVerifiedAt: new Date('2026-04-15T00:00:00.000Z'),
+    });
+
+    expect(prismaMock.accountCreditCardDetails.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { accountId: 'a-cc' },
+      }),
+    );
+    expect(result).toEqual(expect.objectContaining({ accountId: 'a-cc' }));
+
+    prismaMock.account.findUnique.mockResolvedValueOnce({ id: 'a-cc', type: 'CREDIT_CARD' });
+    await expect(
+      upsertAccountCreditCardDetails('a-cc', {
+        creditLimit: 5000,
+        currentUtilization: 101,
+        annualPercentageRate: 19.99,
+        minimumPaymentDueDate: 21,
+        lastVerifiedAt: new Date('2026-04-15T00:00:00.000Z'),
+      }),
+    ).rejects.toBeInstanceOf(AppError);
   });
 });

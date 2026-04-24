@@ -78,6 +78,49 @@ export const api = {
     method: 'PATCH',
     body: JSON.stringify(data),
   }),
+  getAccountRegisteredDetails: (id: string) =>
+    request<{ data: import('../types').RegisteredDetailsResponse }>(`/accounts/${id}/registered-details`),
+  updateAccountRegisteredDetails: (id: string, data: {
+    registrationType: import('../types').RegistrationType;
+    annualContributionLimit?: number;
+    totalContributionRoom?: number;
+    contributedThisYear?: number;
+    unusedCarryforward?: number;
+    beneficiaryName?: string | null;
+    beneficiaryDateOfBirth?: string | null;
+    grantRoomAvailable?: number | null;
+    grantsReceived?: number | null;
+    subscriptionLimit?: number | null;
+    verificationSource?: import('../types').RegistrationVerificationSource;
+    lastVerifiedAt: string;
+    notes?: string | null;
+  }) => request<{ data: import('../types').RegisteredDetailsResponse }>(`/accounts/${id}/registered-details`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  }),
+  getAccountCreditCardDetails: (id: string) =>
+    request<{ data: import('../types').CreditCardDetailsResponse }>(`/accounts/${id}/credit-card-details`),
+  updateAccountCreditCardDetails: (id: string, data: {
+    creditLimit: number;
+    currentUtilization: number;
+    annualPercentageRate: number;
+    minimumPaymentDueDate: number;
+    lastStatementBalance?: number;
+    lastStatementDate?: string | null;
+    hasAnnualFee?: boolean;
+    annualFeeAmount?: number | null;
+    rewardsProgram?: import('../types').CreditCardRewardsProgram | null;
+    rewardsRate?: number | null;
+    rewardsRedeemedThisYear?: number | null;
+    issuingBank?: string | null;
+    cardType?: import('../types').CreditCardType | null;
+    verificationSource?: import('../types').CreditCardVerificationSource;
+    lastVerifiedAt: string;
+    notes?: string | null;
+  }) => request<{ data: import('../types').CreditCardDetailsResponse }>(`/accounts/${id}/credit-card-details`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  }),
 
   // Transactions
   getTransactions: (params: {

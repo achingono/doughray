@@ -84,5 +84,17 @@ describe('importTransactions', () => {
         create: expect.not.objectContaining({ loanDetails: expect.anything() }),
       }),
     );
+    expect(prismaMock.account.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: expect.not.objectContaining({ registeredDetails: expect.anything() }),
+        create: expect.not.objectContaining({ registeredDetails: expect.anything() }),
+      }),
+    );
+    expect(prismaMock.account.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: expect.not.objectContaining({ creditCardDetails: expect.anything() }),
+        create: expect.not.objectContaining({ creditCardDetails: expect.anything() }),
+      }),
+    );
   });
 });

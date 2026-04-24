@@ -29,6 +29,8 @@ model Account {
   categoryRules CategoryRule[]
   goalAccounts GoalAccount[]
   loanDetails AccountLoanDetails?
+  registeredDetails AccountRegisteredDetails?
+  creditCardDetails AccountCreditCardDetails?
   netWorthSnapshots AccountNetWorthSnapshot[]
 
   @@index([type])
@@ -58,6 +60,55 @@ model AccountLoanDetails {
   updatedAt                    DateTime         @updatedAt
 
   @@index([loanType])
+}
+
+model AccountRegisteredDetails {
+  accountId                String                     @id
+  account                  Account                    @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  registrationType         RegistrationType
+  annualContributionLimit  Decimal                    @default(0) @db.Decimal(15, 2)
+  totalContributionRoom    Decimal                    @default(0) @db.Decimal(15, 2)
+  contributedThisYear      Decimal                    @default(0) @db.Decimal(15, 2)
+  unusedCarryforward       Decimal                    @default(0) @db.Decimal(15, 2)
+  beneficiaryName          String?
+  beneficiaryDateOfBirth   DateTime?
+  grantRoomAvailable       Decimal?                   @db.Decimal(15, 2)
+  grantsReceived           Decimal?                   @db.Decimal(15, 2)
+  subscriptionLimit        Decimal?                   @db.Decimal(15, 2)
+  verificationSource       RegistrationVerificationSource @default(USER_ENTERED)
+  lastVerifiedAt           DateTime
+  notes                    String?
+  createdAt                DateTime                   @default(now())
+  updatedAt                DateTime                   @updatedAt
+
+  @@index([registrationType])
+  @@index([lastVerifiedAt])
+}
+
+model AccountCreditCardDetails {
+  accountId                String                         @id
+  account                  Account                        @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  creditLimit              Decimal                        @db.Decimal(15, 2)
+  currentUtilization       Decimal                        @db.Decimal(5, 2)
+  annualPercentageRate     Decimal                        @db.Decimal(7, 4)
+  minimumPaymentDueDate    Int
+  lastStatementBalance     Decimal                        @default(0) @db.Decimal(15, 2)
+  lastStatementDate        DateTime?
+  hasAnnualFee             Boolean                        @default(false)
+  annualFeeAmount          Decimal?                       @db.Decimal(15, 2)
+  rewardsProgram           CreditCardRewardsProgram?
+  rewardsRate              Decimal?                       @db.Decimal(8, 4)
+  rewardsRedeemedThisYear  Decimal?                       @db.Decimal(15, 2)
+  issuingBank              String?
+  cardType                 CreditCardType?
+  verificationSource       CreditCardVerificationSource   @default(USER_ENTERED)
+  lastVerifiedAt           DateTime
+  notes                    String?
+  createdAt                DateTime                       @default(now())
+  updatedAt                DateTime                       @updatedAt
+
+  @@index([lastVerifiedAt])
+  @@index([currentUtilization])
 }
 
 model Transaction {
@@ -255,6 +306,41 @@ enum LoanDetailSource {
   USER_ENTERED
   IMPORTED
   SYNCED
+}
+
+enum RegistrationType {
+  RRSP
+  TFSA
+  RESP
+  RIF
+  RDSP
+}
+
+enum RegistrationVerificationSource {
+  CRA_NOTICE_OF_ASSESSMENT
+  INSTITUTION_STATEMENT
+  USER_ENTERED
+  IMPORTED
+}
+
+enum CreditCardRewardsProgram {
+  NONE
+  CASH_BACK
+  POINTS
+  MILES
+  TRAVEL_CREDIT
+}
+
+enum CreditCardType {
+  CREDIT
+  CHARGE
+  SECURED
+}
+
+enum CreditCardVerificationSource {
+  INSTITUTION_STATEMENT
+  USER_ENTERED
+  SYNCED_FROM_ACCOUNT_AGGREGATOR
 }
 
 model Asset {

@@ -21,6 +21,10 @@ const { accountServiceMock } = vi.hoisted(() => ({
     updateAccountBalance: vi.fn(),
     updateImportedAccountInstitution: vi.fn(),
     upsertAccountLoanDetails: vi.fn(),
+    getAccountRegisteredDetails: vi.fn(),
+    upsertAccountRegisteredDetails: vi.fn(),
+    getAccountCreditCardDetails: vi.fn(),
+    upsertAccountCreditCardDetails: vi.fn(),
   },
 }));
 const { transactionServiceMock } = vi.hoisted(() => ({
@@ -166,6 +170,53 @@ describe('API route integration', () => {
       id: 'a1',
       loanDetails: { loanType: 'MORTGAGE', source: 'USER_ENTERED' },
     }).mockResolvedValueOnce(null);
+    accountServiceMock.getAccountRegisteredDetails.mockResolvedValueOnce({
+      accountId: 'a1',
+      registrationType: 'RRSP',
+      annualContributionLimit: 31560,
+      totalContributionRoom: 42000,
+      contributedThisYear: 6000,
+      unusedCarryforward: 36000,
+      staleness: {
+        isDaysOld: 40,
+        isStale: false,
+        warningMessage: null,
+      },
+    }).mockResolvedValueOnce(null);
+    accountServiceMock.upsertAccountRegisteredDetails.mockResolvedValueOnce({
+      accountId: 'a1',
+      registrationType: 'RRSP',
+      totalContributionRoom: 42000,
+      contributedThisYear: 6000,
+      unusedCarryforward: 36000,
+      staleness: {
+        isDaysOld: 40,
+        isStale: false,
+        warningMessage: null,
+      },
+    }).mockResolvedValueOnce(null);
+    accountServiceMock.getAccountCreditCardDetails.mockResolvedValueOnce({
+      accountId: 'a1',
+      creditLimit: 5000,
+      currentUtilization: 45.5,
+      annualPercentageRate: 19.99,
+      minimumPaymentDueDate: 21,
+      utilization: {
+        isHigh: true,
+        warningMessage: 'Credit utilization at 45.5%. Maintaining above 30% utilization may impact credit score.',
+      },
+    }).mockResolvedValueOnce(null);
+    accountServiceMock.upsertAccountCreditCardDetails.mockResolvedValueOnce({
+      accountId: 'a1',
+      creditLimit: 5000,
+      currentUtilization: 45.5,
+      annualPercentageRate: 19.99,
+      minimumPaymentDueDate: 21,
+      utilization: {
+        isHigh: true,
+        warningMessage: 'Credit utilization at 45.5%. Maintaining above 30% utilization may impact credit score.',
+      },
+    }).mockResolvedValueOnce(null);
 
     await request(app).get('/api/accounts').expect(200).expect({ data: [{ id: 'a1' }] });
     await request(app).get('/api/accounts/a1').expect(200).expect({ data: { id: 'a1' } });
@@ -176,15 +227,76 @@ describe('API route integration', () => {
       .send({ loanType: 'MORTGAGE', interestRateAnnual: 5.05, source: 'USER_ENTERED' })
       .expect(200)
       .expect({ data: { id: 'a1', loanDetails: { loanType: 'MORTGAGE', source: 'USER_ENTERED' } } });
+    await request(app).get('/api/accounts/a1/registered-details').expect(200);
+    await request(app)
+      .patch('/api/accounts/a1/registered-details')
+      .send({
+        registrationType: 'RRSP',
+        annualContributionLimit: 31560,
+        totalContributionRoom: 42000,
+        contributedThisYear: 6000,
+        unusedCarryforward: 36000,
+        verificationSource: 'CRA_NOTICE_OF_ASSESSMENT',
+        lastVerifiedAt: '2026-03-15T00:00:00.000Z',
+      })
+      .expect(200);
+    await request(app).get('/api/accounts/a1/credit-card-details').expect(200);
+    await request(app)
+      .patch('/api/accounts/a1/credit-card-details')
+      .send({
+        creditLimit: 5000,
+        currentUtilization: 45.5,
+        annualPercentageRate: 19.99,
+        minimumPaymentDueDate: 21,
+        verificationSource: 'INSTITUTION_STATEMENT',
+        lastVerifiedAt: '2026-04-15T00:00:00.000Z',
+      })
+      .expect(200);
     await request(app).patch('/api/accounts/a1/balance').send({}).expect(400);
     await request(app).patch('/api/accounts/a1/institution').send({ institution: '' }).expect(400);
     await request(app)
       .patch('/api/accounts/a1/loan-details')
       .send({ loanType: 'MORTGAGE', termStartDate: '2027-08-01T00:00:00.000Z', termMaturityDate: '2024-08-01T00:00:00.000Z' })
       .expect(400);
+    await request(app)
+      .patch('/api/accounts/a1/registered-details')
+      .send({
+        registrationType: 'RESP',
+        beneficiaryName: 'Emma',
+        totalContributionRoom: 5000,
+        contributedThisYear: 2000,
+        unusedCarryforward: 0,
+        verificationSource: 'USER_ENTERED',
+        lastVerifiedAt: '2026-04-20T00:00:00.000Z',
+      })
+      .expect(400);
+    await request(app)
+      .patch('/api/accounts/a1/credit-card-details')
+      .send({
+        creditLimit: 5000,
+        currentUtilization: 105,
+        annualPercentageRate: 19.99,
+        minimumPaymentDueDate: 21,
+        verificationSource: 'INSTITUTION_STATEMENT',
+        lastVerifiedAt: '2026-04-15T00:00:00.000Z',
+      })
+      .expect(400);
     await request(app).patch('/api/accounts/missing/balance').send({ balance: 100 }).expect(404);
     await request(app).patch('/api/accounts/missing/institution').send({ institution: 'Any' }).expect(404);
     await request(app).patch('/api/accounts/missing/loan-details').send({ loanType: 'MORTGAGE' }).expect(404);
+    await request(app).get('/api/accounts/missing/registered-details').expect(404);
+    await request(app).patch('/api/accounts/missing/registered-details').send({ registrationType: 'RRSP', lastVerifiedAt: '2026-03-15T00:00:00.000Z' }).expect(404);
+    await request(app).get('/api/accounts/missing/credit-card-details').expect(404);
+    await request(app)
+      .patch('/api/accounts/missing/credit-card-details')
+      .send({
+        creditLimit: 5000,
+        currentUtilization: 45.5,
+        annualPercentageRate: 19.99,
+        minimumPaymentDueDate: 21,
+        lastVerifiedAt: '2026-04-15T00:00:00.000Z',
+      })
+      .expect(404);
     await request(app).get('/api/accounts/missing').expect(404);
   });
 

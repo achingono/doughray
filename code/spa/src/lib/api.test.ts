@@ -191,6 +191,96 @@ describe('api client', () => {
     );
   });
 
+  it('gets and patches account registered details as JSON', async () => {
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: vi.fn().mockResolvedValue({ data: { accountId: 'acc-1', registrationType: 'RRSP' } }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: vi.fn().mockResolvedValue({ data: { accountId: 'acc-1', registrationType: 'RRSP' } }),
+      });
+
+    await api.getAccountRegisteredDetails('acc-1');
+    await api.updateAccountRegisteredDetails('acc-1', {
+      registrationType: 'RRSP',
+      totalContributionRoom: 42000,
+      contributedThisYear: 6000,
+      unusedCarryforward: 36000,
+      verificationSource: 'CRA_NOTICE_OF_ASSESSMENT',
+      lastVerifiedAt: '2026-03-15T00:00:00.000Z',
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      '/api/accounts/acc-1/registered-details',
+      expect.any(Object),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/accounts/acc-1/registered-details',
+      expect.objectContaining({
+        method: 'PATCH',
+        body: JSON.stringify({
+          registrationType: 'RRSP',
+          totalContributionRoom: 42000,
+          contributedThisYear: 6000,
+          unusedCarryforward: 36000,
+          verificationSource: 'CRA_NOTICE_OF_ASSESSMENT',
+          lastVerifiedAt: '2026-03-15T00:00:00.000Z',
+        }),
+      }),
+    );
+  });
+
+  it('gets and patches account credit card details as JSON', async () => {
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: vi.fn().mockResolvedValue({ data: { accountId: 'acc-1', creditLimit: 5000 } }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: vi.fn().mockResolvedValue({ data: { accountId: 'acc-1', creditLimit: 5000 } }),
+      });
+
+    await api.getAccountCreditCardDetails('acc-1');
+    await api.updateAccountCreditCardDetails('acc-1', {
+      creditLimit: 5000,
+      currentUtilization: 45.5,
+      annualPercentageRate: 19.99,
+      minimumPaymentDueDate: 21,
+      verificationSource: 'INSTITUTION_STATEMENT',
+      lastVerifiedAt: '2026-04-15T00:00:00.000Z',
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      '/api/accounts/acc-1/credit-card-details',
+      expect.any(Object),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/accounts/acc-1/credit-card-details',
+      expect.objectContaining({
+        method: 'PATCH',
+        body: JSON.stringify({
+          creditLimit: 5000,
+          currentUtilization: 45.5,
+          annualPercentageRate: 19.99,
+          minimumPaymentDueDate: 21,
+          verificationSource: 'INSTITUTION_STATEMENT',
+          lastVerifiedAt: '2026-04-15T00:00:00.000Z',
+        }),
+      }),
+    );
+  });
+
   it('posts expense analysis report generation', async () => {
     fetchMock.mockResolvedValue({
       ok: true,
