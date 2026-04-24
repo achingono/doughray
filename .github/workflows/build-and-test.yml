@@ -1,0 +1,249 @@
+name: Build and Test
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'code/**'
+      - 'zap/**'
+      - 'docker-compose.yml'
+      - '.github/workflows/build-and-test.yml'
+      - '.github/actions/test-reporter/**'
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+    paths:
+      - 'code/**'
+      - 'zap/**'
+      - 'docker-compose.yml'
+      - '.github/workflows/build-and-test.yml'
+      - '.github/actions/test-reporter/**'
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  build-and-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft != true
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: code/package-lock.json
+
+      - name: Install workspace dependencies
+        working-directory: code
+        run: npm ci
+
+      - name: Install test reporter dependencies
+        working-directory: .github/actions/test-reporter
+        run: npm ci
+
+      - name: Generate Prisma client
+        working-directory: code
+        run: npm run db:generate
+
+      - name: Run unit and integration tests
+        working-directory: code
+        run: |
+          mkdir -p test-results/api test-results/spa test-results/worker
+          npm run test --workspace=api -- --reporter=default --reporter=junit --outputFile=../test-results/api/results.xml
+          npm run test --workspace=spa -- --reporter=default --reporter=junit --outputFile=../test-results/spa/results.xml
+          npm run test --workspace=worker -- --reporter=default --reporter=junit --outputFile=../test-results/worker/results.xml
+
+      - name: Build all workspaces
+        working-directory: code
+        run: npm run build
+
+      - name: Install Playwright browser
+        working-directory: code/spa
+        run: npx playwright install --with-deps chromium
+
+      - name: Start Compose services
+        run: docker compose up -d --build postgres api spa
+
+      - name: Wait for services
+        id: wait-for-services
+        run: |
+          echo "Waiting for API and SPA..."
+          for i in {1..120}; do
+            api_status=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/api/health || true)
+            spa_status=$(curl -s -o /dev/null -w "%{http_code}" http://localhost || true)
+            if [ "$api_status" = "200" ] && [ "$spa_status" = "200" ]; then
+              echo "Services are ready (API: $api_status, SPA: $spa_status)"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Services did not become healthy in time"
+          docker compose logs
+          exit 1
+
+      - name: Run Playwright E2E tests
+        id: e2e-tests
+        if: steps.wait-for-services.outcome == 'success'
+        working-directory: code
+        env:
+          PLAYWRIGHT_BASE_URL: http://localhost
+          PLAYWRIGHT_JUNIT_OUTPUT_FILE: spa/test-results/results-ui.xml
+        run: npm run test:e2e --workspace=spa -- --reporter=list,junit
+
+      - name: Start OWASP ZAP baseline scans
+        id: start-zap
+        if: steps.wait-for-services.outcome == 'success'
+        run: |
+          mkdir -p zap-reports
+          echo "Starting ZAP SPA baseline scan..."
+          docker run -d --name zap-spa \
+            --network host \
+            -v "${{ github.workspace }}/zap-reports:/zap/wrk:rw" \
+            -v "${{ github.workspace }}/zap:/zap/rules:ro" \
+            -u root \
+            ghcr.io/zaproxy/zaproxy:2.15.0 \
+            zap-baseline.py \
+              -t http://localhost \
+              -c /zap/rules/zap-baseline-rules.tsv \
+              -J spa-report.json \
+              -r spa-report.html \
+              -w spa-report.md \
+              -I
+
+          echo "Starting ZAP API baseline scan..."
+          docker run -d --name zap-api \
+            --network host \
+            -v "${{ github.workspace }}/zap-reports:/zap/wrk:rw" \
+            -v "${{ github.workspace }}/zap:/zap/rules:ro" \
+            -u root \
+            ghcr.io/zaproxy/zaproxy:2.15.0 \
+            zap-baseline.py \
+              -t http://localhost:3000/api/health \
+              -c /zap/rules/zap-api-rules.tsv \
+              -J api-report.json \
+              -r api-report.html \
+              -w api-report.md \
+              -I
+
+      - name: Wait for OWASP ZAP scans
+        id: wait-zap
+        if: always() && steps.start-zap.outcome == 'success'
+        timeout-minutes: 10
+        run: |
+          spa_exit=$(docker wait zap-spa)
+          api_exit=$(docker wait zap-api)
+          echo "ZAP container exit codes: spa=$spa_exit api=$api_exit"
+          echo "spa_exit=$spa_exit" >> "$GITHUB_OUTPUT"
+          echo "api_exit=$api_exit" >> "$GITHUB_OUTPUT"
+          # ZAP baseline returns:
+          # 0 = no issues, 1 = at least one FAIL, 2 = at least one WARN, 3 = scanner/runtime error.
+          # Treat only scanner/runtime errors as hard workflow failures so reports are still produced.
+          if [ "$spa_exit" -ge 3 ] || [ "$api_exit" -ge 3 ]; then
+            echo "One or more ZAP scans encountered a scanner/runtime error."
+            exit 1
+          fi
+
+      - name: Convert ZAP results to JUnit
+        if: always() && steps.wait-zap.outcome == 'success'
+        run: |
+          mkdir -p zap-reports/junit
+          node zap/zap-to-junit.js zap-reports/spa-report.json zap-reports/junit/zap-spa.xml "OWASP ZAP SPA"
+          node zap/zap-to-junit.js zap-reports/api-report.json zap-reports/junit/zap-api.xml "OWASP ZAP API"
+
+      - name: OWASP ZAP scan summary
+        if: always() && steps.wait-zap.outcome == 'success'
+        run: |
+          echo "## :shield: OWASP ZAP Scan Results" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Scan | High | Medium | Low | Info |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| --- | ---: | ---: | ---: | ---: |" >> "$GITHUB_STEP_SUMMARY"
+          for report in zap-reports/spa-report.json zap-reports/api-report.json; do
+            if [ -f "$report" ]; then
+              name=$(basename "$report" -report.json)
+              high=$(jq '[.site[].alerts[] | select(.riskcode=="3")] | length' "$report")
+              medium=$(jq '[.site[].alerts[] | select(.riskcode=="2")] | length' "$report")
+              low=$(jq '[.site[].alerts[] | select(.riskcode=="1")] | length' "$report")
+              info=$(jq '[.site[].alerts[] | select(.riskcode=="0")] | length' "$report")
+              echo "| ${name^^} | $high | $medium | $low | $info |" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Full details are available in the uploaded artifact: \`owasp-zap-reports\`." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Check if result files exist
+        if: always()
+        id: check-results
+        run: |
+          if find code/test-results code/spa/test-results zap-reports/junit -name "*.xml" -type f 2>/dev/null | grep -q .; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Report results
+        if: always() && steps.check-results.outputs.exists == 'true'
+        uses: ./.github/actions/test-reporter
+        with:
+          test-results-path: |
+            code/test-results/**/*.xml
+            code/spa/test-results/*.xml
+            zap-reports/junit/*.xml
+          name: Build and Test Results
+          fail-on-error: false
+
+      - name: Capture service logs
+        if: failure()
+        run: |
+          docker compose logs postgres > postgres.log 2>&1 || true
+          docker compose logs api > api.log 2>&1 || true
+          docker compose logs spa > spa.log 2>&1 || true
+          docker logs zap-spa > zap-spa.log 2>&1 || true
+          docker logs zap-api > zap-api.log 2>&1 || true
+
+      - name: Upload Playwright results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-test-results
+          path: |
+            code/spa/test-results/
+            code/spa/playwright-report/
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Upload OWASP ZAP reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: owasp-zap-reports
+          path: |
+            zap-reports/
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Upload service logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: service-logs
+          path: "*.log"
+          if-no-files-found: ignore
+
+      - name: Stop Compose services
+        if: always()
+        run: |
+          docker rm -f zap-spa zap-api 2>/dev/null || true
+          docker compose down --volumes

@@ -1,0 +1,13 @@
+# ZAP Baseline Scan Rules for SPA
+# Format: ruleId	action	name
+# Actions: IGNORE (suppress), WARN (report only), FAIL (fail the scan)
+# Reference: https://www.zaproxy.org/docs/docker/baseline-scan/
+10038	FAIL	Content Security Policy (CSP) Header Not Set
+10020	FAIL	Missing Anti-clickjacking Header
+10021	FAIL	X-Content-Type-Options Header Missing
+10063	FAIL	Permissions Policy Header Not Set
+90003	FAIL	Sub Resource Integrity Attribute Missing
+90004	FAIL	Cross-Origin-*-Policy Header Missing or Invalid
+10116	IGNORE	ZAP is Out of Date
+10049	WARN	Storable and Cacheable Content
+10109	IGNORE	Modern Web Application
