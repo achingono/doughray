@@ -14,7 +14,7 @@ const createAssetSchema = z.object({
   purchaseDate: z.string().datetime().optional().transform((v) => v ? new Date(v) : undefined),
   address: z.string().optional(),
   metadata: z.record(z.any()).optional(),
-  accountId: z.string().uuid().optional(),
+  accountId: z.string().cuid().optional(),
 });
 
 const updateAssetSchema = z.object({
@@ -25,7 +25,7 @@ const updateAssetSchema = z.object({
   purchaseDate: z.string().datetime().optional().transform((v) => v ? new Date(v) : undefined),
   address: z.string().optional(),
   metadata: z.record(z.any()).optional(),
-  accountId: z.string().uuid().nullable().optional(),
+  accountId: z.string().cuid().nullable().optional(),
 });
 
 const addValuationSchema = z.object({

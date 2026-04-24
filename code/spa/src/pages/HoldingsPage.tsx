@@ -40,9 +40,10 @@ export function HoldingsPage() {
       await refresh();
       setShowLiabilityForm(false);
       toast.success('Liability account created');
+      return true;
     } catch (err: any) {
       toast.error(err.message || 'Failed to create liability account');
-      throw err;
+      return false;
     }
   };
 
@@ -127,20 +128,20 @@ export function HoldingsPage() {
         </Card>
       )}
 
-      {liabilities.length > 0 && (
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <CardTitle>Liabilities</CardTitle>
-                <CardDescription>{liabilities.length} accounts</CardDescription>
-              </div>
-              <Button onClick={() => setShowLiabilityForm(true)} size="sm">
-                Create Account
-              </Button>
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <CardTitle>Liabilities</CardTitle>
+              <CardDescription>{liabilities.length} accounts</CardDescription>
             </div>
-          </CardHeader>
-          <CardContent>
+            <Button onClick={() => setShowLiabilityForm(true)} size="sm">
+              Create Account
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {liabilities.length > 0 ? (
             <Table>
               <TableHeader>
                 <TableRow>
@@ -161,9 +162,13 @@ export function HoldingsPage() {
                 ))}
               </TableBody>
             </Table>
-          </CardContent>
-        </Card>
-      )}
+          ) : (
+            <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
+              No liability accounts yet. Create your first loan, mortgage, or credit card account to start tracking it here.
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <AccountDetail
         accountId={selectedAccountId}

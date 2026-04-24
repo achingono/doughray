@@ -527,7 +527,13 @@ describe('API route integration', () => {
     await request(app).get('/api/assets/missing').expect(404);
     await request(app)
       .post('/api/assets')
-      .send({ name: 'House', purchasePrice: 200000, currentValue: 250000, purchaseDate: '2026-01-01T00:00:00.000Z' })
+      .send({
+        name: 'House',
+        purchasePrice: 200000,
+        currentValue: 250000,
+        purchaseDate: '2026-01-01T00:00:00.000Z',
+        accountId: 'cm9z7x1yq0000f5m7g2d3k4l5',
+      })
       .expect(201);
     await request(app).put('/api/assets/asset1').send({ currentValue: 260000 }).expect(200);
     await request(app).delete('/api/assets/asset1').expect(204);

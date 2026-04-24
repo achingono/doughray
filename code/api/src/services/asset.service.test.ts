@@ -35,6 +35,7 @@ import {
   getTotalAssetValue,
   updateAsset,
 } from './asset.service';
+import { AppError } from '../middleware/error-handler';
 
 describe('asset.service', () => {
   beforeEach(() => {
@@ -207,12 +208,17 @@ describe('asset.service', () => {
     await expect(
       createAsset({
         name: 'Vehicle',
-        type: 'VEHICLE',
+        type: 'AUTOMOBILE',
         purchasePrice: 35000,
         currentValue: 28000,
         accountId: 'nonexistent-loan',
       }),
-    ).rejects.toThrow('Account not found: nonexistent-loan');
+    ).rejects.toMatchObject({
+      name: 'AppError',
+      statusCode: 400,
+      code: 'VALIDATION_ERROR',
+      message: 'Account not found: nonexistent-loan',
+    } satisfies Partial<AppError>);
   });
 
   it('rejects asset link to non-liability account', async () => {
@@ -224,12 +230,16 @@ describe('asset.service', () => {
     await expect(
       createAsset({
         name: 'Vehicle',
-        type: 'VEHICLE',
+        type: 'AUTOMOBILE',
         purchasePrice: 35000,
         currentValue: 28000,
         accountId: 'checking-acct',
       }),
-    ).rejects.toThrow('Account must be a liability account');
+    ).rejects.toMatchObject({
+      name: 'AppError',
+      statusCode: 400,
+      code: 'VALIDATION_ERROR',
+    } satisfies Partial<AppError>);
   });
 
   it('updates asset to link/unlink liability account', async () => {
@@ -240,7 +250,7 @@ describe('asset.service', () => {
     prismaMock.asset.update.mockResolvedValue({
       id: 'vehicle-asset',
       name: 'Tesla Model 3',
-      type: 'VEHICLE',
+      type: 'AUTOMOBILE',
       purchasePrice: new Decimal('50000'),
       currentValue: new Decimal('40000'),
       purchaseDate: null,
@@ -268,7 +278,7 @@ describe('asset.service', () => {
     prismaMock.asset.update.mockResolvedValue({
       id: 'vehicle-asset',
       name: 'Tesla Model 3',
-      type: 'VEHICLE',
+      type: 'AUTOMOBILE',
       purchasePrice: new Decimal('50000'),
       currentValue: new Decimal('40000'),
       purchaseDate: null,

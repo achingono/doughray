@@ -16,7 +16,15 @@ import { AppError } from '../middleware/error-handler';
 
 const router = Router();
 
-const toOptionalDate = (value: string | null | undefined): Date | null | undefined => {
+const toOptionalDate = (value: string | undefined): Date | undefined => {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  return new Date(value);
+};
+
+const toOptionalNullableDate = (value: string | null | undefined): Date | null | undefined => {
   if (value === undefined) {
     return undefined;
   }
@@ -189,13 +197,13 @@ router.post('/', async (req, res, next) => {
         interestRateAnnual: body.loanDetails.interestRateAnnual,
         paymentAmount: body.loanDetails.paymentAmount,
         paymentFrequency: body.loanDetails.paymentFrequency,
-        termStartDate: toOptionalDate(body.loanDetails.termStartDate),
-        termMaturityDate: toOptionalDate(body.loanDetails.termMaturityDate),
+        termStartDate: toOptionalNullableDate(body.loanDetails.termStartDate),
+        termMaturityDate: toOptionalNullableDate(body.loanDetails.termMaturityDate),
         originalAmortizationMonths: body.loanDetails.originalAmortizationMonths,
         remainingAmortizationMonths: body.loanDetails.remainingAmortizationMonths,
-        renewalDate: toOptionalDate(body.loanDetails.renewalDate),
+        renewalDate: toOptionalNullableDate(body.loanDetails.renewalDate),
         notes: body.loanDetails.notes,
-        lastVerifiedAt: toOptionalDate(body.loanDetails.lastVerifiedAt),
+        lastVerifiedAt: toOptionalNullableDate(body.loanDetails.lastVerifiedAt),
         source: body.loanDetails.source,
       } : undefined,
     });
@@ -286,13 +294,13 @@ router.patch('/:id/loan-details', async (req, res, next) => {
       interestRateAnnual: body.interestRateAnnual,
       paymentAmount: body.paymentAmount,
       paymentFrequency: body.paymentFrequency,
-      termStartDate: toOptionalDate(body.termStartDate),
-      termMaturityDate: toOptionalDate(body.termMaturityDate),
+      termStartDate: toOptionalNullableDate(body.termStartDate),
+      termMaturityDate: toOptionalNullableDate(body.termMaturityDate),
       originalAmortizationMonths: body.originalAmortizationMonths,
       remainingAmortizationMonths: body.remainingAmortizationMonths,
-      renewalDate: toOptionalDate(body.renewalDate),
+      renewalDate: toOptionalNullableDate(body.renewalDate),
       notes: body.notes,
-      lastVerifiedAt: toOptionalDate(body.lastVerifiedAt),
+      lastVerifiedAt: toOptionalNullableDate(body.lastVerifiedAt),
       source: body.source,
     });
 
@@ -339,7 +347,7 @@ router.patch('/:id/registered-details', async (req, res, next) => {
       contributedThisYear: body.contributedThisYear,
       unusedCarryforward: body.unusedCarryforward,
       beneficiaryName: body.beneficiaryName,
-      beneficiaryDateOfBirth: toOptionalDate(body.beneficiaryDateOfBirth),
+      beneficiaryDateOfBirth: toOptionalNullableDate(body.beneficiaryDateOfBirth),
       grantRoomAvailable: body.grantRoomAvailable,
       grantsReceived: body.grantsReceived,
       subscriptionLimit: body.subscriptionLimit,
@@ -390,7 +398,7 @@ router.patch('/:id/credit-card-details', async (req, res, next) => {
       annualPercentageRate: body.annualPercentageRate,
       minimumPaymentDueDate: body.minimumPaymentDueDate,
       lastStatementBalance: body.lastStatementBalance,
-      lastStatementDate: toOptionalDate(body.lastStatementDate),
+      lastStatementDate: toOptionalNullableDate(body.lastStatementDate),
       hasAnnualFee: body.hasAnnualFee,
       annualFeeAmount: body.annualFeeAmount,
       rewardsProgram: body.rewardsProgram,

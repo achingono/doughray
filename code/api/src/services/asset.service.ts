@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma';
 import { decimalToNumber } from '../lib/types';
 import { isLiabilityAccountType, LIABILITY_ACCOUNT_TYPES } from '../lib/account-types';
+import { AppError } from '../middleware/error-handler';
 
 export interface AssetWithValuations {
   id: string;
@@ -21,6 +22,20 @@ export interface AssetWithValuations {
     source: string;
     valuedAt: Date;
   }[];
+}
+
+function assertValidLinkedLiabilityAccount(account: { type: string } | null, accountId: string) {
+  if (!account) {
+    throw new AppError(400, `Account not found: ${accountId}`, 'VALIDATION_ERROR');
+  }
+
+  if (!isLiabilityAccountType(account.type)) {
+    throw new AppError(
+      400,
+      `Account must be a liability account (${LIABILITY_ACCOUNT_TYPES.join(', ')}), got ${account.type}`,
+      'VALIDATION_ERROR',
+    );
+  }
 }
 
 function mapAsset(a: any, includeValuations = false): AssetWithValuations {
@@ -109,12 +124,7 @@ export async function createAsset(data: {
       where: { id: data.accountId },
       select: { type: true },
     });
-    if (!account) {
-      throw new Error(`Account not found: ${data.accountId}`);
-    }
-    if (!isLiabilityAccountType(account.type)) {
-      throw new Error(`Account must be a liability account (${LIABILITY_ACCOUNT_TYPES.join(', ')}), got ${account.type}`);
-    }
+    assertValidLinkedLiabilityAccount(account, data.accountId);
   }
 
   const asset = await prisma.asset.create({
@@ -160,12 +170,7 @@ export async function updateAsset(id: string, data: {
         where: { id: data.accountId },
         select: { type: true },
       });
-      if (!account) {
-        throw new Error(`Account not found: ${data.accountId}`);
-      }
-      if (!isLiabilityAccountType(account.type)) {
-        throw new Error(`Account must be a liability account (${LIABILITY_ACCOUNT_TYPES.join(', ')}), got ${account.type}`);
-      }
+      assertValidLinkedLiabilityAccount(account, data.accountId);
     }
   }
 

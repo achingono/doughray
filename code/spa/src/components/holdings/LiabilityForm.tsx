@@ -10,17 +10,33 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import type { CreateLiabilityAccountInput, LoanType } from "@/types";
 
+const optionalNumberFromInput = z.preprocess((value) => {
+  if (typeof value === "string" && value.trim() === "") {
+    return undefined;
+  }
+
+  return value;
+}, z.coerce.number().optional());
+
+const optionalIntFromInput = z.preprocess((value) => {
+  if (typeof value === "string" && value.trim() === "") {
+    return undefined;
+  }
+
+  return value;
+}, z.coerce.number().int().optional());
+
 const loanDetailsSchema = z.object({
   loanType: z.enum(['MORTGAGE', 'AUTO_LOAN', 'PERSONAL_LOAN', 'HELOC', 'OTHER']).optional(),
-  originalPrincipal: z.coerce.number().optional(),
-  currentPrincipal: z.coerce.number().optional(),
-  interestRateAnnual: z.coerce.number().optional(),
-  paymentAmount: z.coerce.number().optional(),
+  originalPrincipal: optionalNumberFromInput,
+  currentPrincipal: optionalNumberFromInput,
+  interestRateAnnual: optionalNumberFromInput,
+  paymentAmount: optionalNumberFromInput,
   paymentFrequency: z.enum(['WEEKLY', 'BIWEEKLY', 'SEMI_MONTHLY', 'MONTHLY']).optional(),
   termStartDate: z.string().optional(),
   termMaturityDate: z.string().optional(),
-  originalAmortizationMonths: z.coerce.number().int().optional(),
-  remainingAmortizationMonths: z.coerce.number().int().optional(),
+  originalAmortizationMonths: optionalIntFromInput,
+  remainingAmortizationMonths: optionalIntFromInput,
   notes: z.string().max(2000).optional(),
 });
 
@@ -65,7 +81,7 @@ const toIsoDateTime = (value?: string): string | null => {
 interface LiabilityFormProps {
   open: boolean;
   onClose: () => void;
-  onSubmit: (data: CreateLiabilityAccountInput) => Promise<void>;
+  onSubmit: (data: CreateLiabilityAccountInput) => Promise<boolean>;
 }
 
 export function LiabilityForm({ open, onClose, onSubmit }: Readonly<LiabilityFormProps>) {
@@ -108,9 +124,11 @@ export function LiabilityForm({ open, onClose, onSubmit }: Readonly<LiabilityFor
       } : undefined,
     };
 
-    await onSubmit(data);
-    reset();
-    onClose();
+    const wasSuccessful = await onSubmit(data);
+    if (wasSuccessful) {
+      reset();
+      onClose();
+    }
   };
 
   const handleDialogChange = (open: boolean) => {
