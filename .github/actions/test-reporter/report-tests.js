@@ -97,9 +97,11 @@ function asPercent(value) {
 }
 
 // Parse Cobertura coverage file
-async function parseCoberturaFile(filePath) {
+async function parseCoberturaFile(filePath, content) {
   try {
-    const content = fs.readFileSync(filePath, 'utf8');
+    if (!content) {
+      content = fs.readFileSync(filePath, 'utf8');
+    }
     const result = await parseStringPromise(content);
     const coverage = createEmptyCoverage();
 
@@ -167,6 +169,10 @@ function parseJsonSummaryCoverage(filePath) {
       ? coverage.branchesCovered / coverage.branchesValid
       : asPercent(total.branches?.pct);
 
+    // Get the directory containing the coverage file for path normalization
+    const coverageDir = path.dirname(filePath);
+    const workspaceDir = path.dirname(path.relative(process.cwd(), filePath)) || '.';
+
     for (const [fileName, entry] of Object.entries(result)) {
       if (fileName === 'total' || !entry || typeof entry !== 'object') continue;
       const lineRate = entry.lines?.total > 0
@@ -176,8 +182,22 @@ function parseJsonSummaryCoverage(filePath) {
         ? (entry.branches.covered || 0) / entry.branches.total
         : asPercent(entry.branches?.pct);
 
+      // Normalize the file path: resolve relative to the coverage file's directory
+      // and then make it relative to the workspace root for consistency
+      let normalizedPath;
+      if (path.isAbsolute(fileName)) {
+        // If fileName is already absolute, make it relative to cwd
+        normalizedPath = path.relative(process.cwd(), fileName);
+      } else {
+        // If fileName is relative, resolve it from the coverage file's directory
+        // then make it relative to cwd for a repo-root-relative path
+        normalizedPath = path.relative(process.cwd(), path.resolve(coverageDir, fileName));
+      }
+      const displayName = path.basename(fileName);
+
       coverage.files.push({
-        name: fileName,
+        name: normalizedPath,
+        displayName,
         lineRate,
         branchRate,
         uncoveredLines: []
