@@ -237,14 +237,6 @@ export function AccountDetail({ accountId, open, onClose, onAccountUpdated }: Re
       setLoanError(`${invalid.label} must be a valid number.`);
       return;
     }
-    if (parsedOriginalAmortizationMonths !== null && !Number.isInteger(parsedOriginalAmortizationMonths)) {
-      setLoanError('Original amortization months must be a whole number.');
-      return;
-    }
-    if (parsedRemainingAmortizationMonths !== null && !Number.isInteger(parsedRemainingAmortizationMonths)) {
-      setLoanError('Remaining amortization months must be a whole number.');
-      return;
-    }
 
     setLoanError(null);
     setIsLoanSubmitting(true);
