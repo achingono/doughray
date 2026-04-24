@@ -32,6 +32,7 @@ model Account {
   registeredDetails AccountRegisteredDetails?
   creditCardDetails AccountCreditCardDetails?
   netWorthSnapshots AccountNetWorthSnapshot[]
+  assets Asset[]
 
   @@index([type])
   @@index([isActive])
@@ -353,12 +354,15 @@ model Asset {
   address           String?
   metadata          Json?
   lastValuationDate DateTime?
+  accountId         String?
+  account           Account?         @relation(fields: [accountId], references: [id], onDelete: SetNull)
   createdAt         DateTime         @default(now())
   updatedAt         DateTime         @updatedAt
 
   valuations AssetValuation[]
 
   @@index([type])
+  @@index([accountId])
 }
 
 model AssetValuation {

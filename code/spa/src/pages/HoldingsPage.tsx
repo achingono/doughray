@@ -1,16 +1,19 @@
 import { useState } from "react";
 import { useHoldings } from "@/hooks/use-holdings";
+import { useAccounts } from "@/hooks/use-accounts";
 import { AccountSummaryCard } from "@/components/holdings/AccountSummaryCard";
 import { HoldingsChart } from "@/components/holdings/HoldingsChart";
 import { AccountDetail } from "@/components/holdings/AccountDetail";
+import { LiabilityForm } from "@/components/holdings/LiabilityForm";
 import { TrendLineChart } from "@/components/dashboard/TrendLineChart";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { formatCurrency } from "@/lib/formatters";
-import { ACCOUNT_TYPE_LABELS, ASSET_TYPES, LIABILITY_TYPES } from "@/types";
+import { ACCOUNT_TYPE_LABELS, ASSET_TYPES, LIABILITY_TYPES, type CreateLiabilityAccountInput } from "@/types";
 import { toast } from "sonner";
 
 const SUMMARY_SKELETON_KEYS = ['holdings-summary-1', 'holdings-summary-2', 'holdings-summary-3'] as const;
@@ -19,6 +22,8 @@ export function HoldingsPage() {
   const [period, setPeriod] = useState("all");
   const { holdings, history, loading, error, refresh } = useHoldings(period);
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
+  const [showLiabilityForm, setShowLiabilityForm] = useState(false);
+  const { createAccount } = useAccounts();
 
   const handleAccountUpdated = async () => {
     try {
@@ -26,6 +31,18 @@ export function HoldingsPage() {
       toast.success('Account updated');
     } catch (err: any) {
       toast.error(err.message || 'Failed to refresh holdings');
+    }
+  };
+
+  const handleCreateLiability = async (data: CreateLiabilityAccountInput) => {
+    try {
+      await createAccount(data);
+      await refresh();
+      setShowLiabilityForm(false);
+      toast.success('Liability account created');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to create liability account');
+      throw err;
     }
   };
 
@@ -113,8 +130,15 @@ export function HoldingsPage() {
       {liabilities.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle>Liabilities</CardTitle>
-            <CardDescription>{liabilities.length} accounts</CardDescription>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <CardTitle>Liabilities</CardTitle>
+                <CardDescription>{liabilities.length} accounts</CardDescription>
+              </div>
+              <Button onClick={() => setShowLiabilityForm(true)} size="sm">
+                Create Account
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             <Table>
@@ -146,6 +170,12 @@ export function HoldingsPage() {
         open={selectedAccountId !== null}
         onClose={() => setSelectedAccountId(null)}
         onAccountUpdated={handleAccountUpdated}
+      />
+
+      <LiabilityForm
+        open={showLiabilityForm}
+        onClose={() => setShowLiabilityForm(false)}
+        onSubmit={handleCreateLiability}
       />
     </div>
   );

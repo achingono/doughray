@@ -28,6 +28,32 @@ export type InterestType = 'FIXED' | 'VARIABLE';
 export type PaymentFrequency = 'WEEKLY' | 'BIWEEKLY' | 'SEMI_MONTHLY' | 'MONTHLY';
 export type LoanDetailSource = 'USER_ENTERED' | 'IMPORTED' | 'SYNCED';
 
+export interface CreateLiabilityAccountInput {
+  name: string;
+  type: 'CREDIT_CARD' | 'LOAN' | 'MORTGAGE';
+  institution?: string | null;
+  currency?: string;
+  balance: number;
+  balanceDate?: string;
+  loanDetails?: {
+    loanType: LoanType;
+    originalPrincipal?: number | null;
+    currentPrincipal?: number | null;
+    interestType?: InterestType | null;
+    interestRateAnnual?: number | null;
+    paymentAmount?: number | null;
+    paymentFrequency?: PaymentFrequency | null;
+    termStartDate?: string | null;
+    termMaturityDate?: string | null;
+    originalAmortizationMonths?: number | null;
+    remainingAmortizationMonths?: number | null;
+    renewalDate?: string | null;
+    notes?: string | null;
+    lastVerifiedAt?: string | null;
+    source?: LoanDetailSource;
+  };
+}
+
 export interface LoanDetails {
   loanType: LoanType;
   originalPrincipal: number | null;
@@ -446,6 +472,7 @@ export interface Asset {
   purchaseDate: string | null;
   address: string | null;
   metadata: Record<string, any> | null;
+  accountId: string | null;
   lastValuationDate: string | null;
   createdAt: string;
   updatedAt: string;

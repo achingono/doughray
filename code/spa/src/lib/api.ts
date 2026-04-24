@@ -45,6 +45,11 @@ export const api = {
   // Accounts
   getAccounts: () => request<{ data: import('../types').Account[] }>('/accounts'),
   getAccount: (id: string) => request<{ data: import('../types').AccountDetail }>(`/accounts/${id}`),
+  createAccount: (data: import('../types').CreateLiabilityAccountInput) =>
+    request<{ data: import('../types').AccountDetail }>('/accounts', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
   updateAccountBalance: (id: string, data: {
     balance: number;
     availableBalance?: number | null;
@@ -236,6 +241,7 @@ export const api = {
     purchaseDate?: string;
     address?: string;
     metadata?: Record<string, any>;
+    accountId?: string;
   }) => request<{ data: import('../types').Asset }>('/assets', { method: 'POST', body: JSON.stringify(data) }),
   updateAsset: (id: string, data: any) =>
     request<{ data: import('../types').Asset }>(`/assets/${id}`, { method: 'PUT', body: JSON.stringify(data) }),

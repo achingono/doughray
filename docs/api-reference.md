@@ -359,6 +359,166 @@ curl http://localhost:3000/api/accounts/clxabc001
 
 ---
 
+#### `POST /api/accounts`
+
+Creates a new liability account (credit card, loan, or mortgage) manually without requiring transaction imports. Optionally includes detailed loan metadata.
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+| ----- | ---- | -------- | ----------- |
+| `name` | string | Yes | Account display name (e.g., "Home Mortgage", "Visa Card") |
+| `type` | enum | Yes | Account type: `CREDIT_CARD`, `LOAN`, or `MORTGAGE` |
+| `institution` | string | No | Financial institution name |
+| `currency` | string | No | 3-letter currency code (default: `USD`) |
+| `balance` | number | Yes | Current account balance (typically negative for liabilities) |
+| `balanceDate` | ISO string | No | Date of balance snapshot (default: now) |
+| `loanDetails` | object | No | Optional detailed loan information (see schema below) |
+
+**Loan Details Schema:**
+
+| Field | Type | Description |
+| ----- | ---- | ----------- |
+| `loanType` | enum | `MORTGAGE`, `AUTO_LOAN`, `PERSONAL_LOAN`, `HELOC`, `OTHER` |
+| `originalPrincipal` | number | Initial loan amount |
+| `currentPrincipal` | number | Remaining principal balance |
+| `interestType` | enum | `FIXED` or `VARIABLE` |
+| `interestRateAnnual` | number | Annual interest rate (%) |
+| `paymentAmount` | number | Regular payment amount |
+| `paymentFrequency` | enum | `WEEKLY`, `BIWEEKLY`, `SEMI_MONTHLY`, `MONTHLY` |
+| `termStartDate` | ISO string | Loan origination date |
+| `termMaturityDate` | ISO string | Loan maturity date |
+| `originalAmortizationMonths` | number | Original amortization period |
+| `remainingAmortizationMonths` | number | Remaining amortization period |
+| `notes` | string | Additional notes (max 2000 characters) |
+
+**Request Example - Credit Card (No Loan Details):**
+
+```json
+{
+  "name": "My Visa Card",
+  "type": "CREDIT_CARD",
+  "institution": "Chase",
+  "currency": "USD",
+  "balance": -2500.00
+}
+```
+
+**Request Example - Mortgage (With Loan Details):**
+
+```json
+{
+  "name": "Home Mortgage",
+  "type": "MORTGAGE",
+  "institution": "TD Bank",
+  "currency": "USD",
+  "balance": -500000.00,
+  "balanceDate": "2025-01-15T00:00:00.000Z",
+  "loanDetails": {
+    "loanType": "MORTGAGE",
+    "originalPrincipal": 559000.00,
+    "currentPrincipal": 538830.46,
+    "interestType": "FIXED",
+    "interestRateAnnual": 5.05,
+    "paymentAmount": 1631.86,
+    "paymentFrequency": "SEMI_MONTHLY",
+    "termStartDate": "2024-08-01T00:00:00.000Z",
+    "termMaturityDate": "2027-08-01T00:00:00.000Z",
+    "originalAmortizationMonths": 300,
+    "remainingAmortizationMonths": 279,
+    "notes": "Primary residence mortgage with renewal in 3 years"
+  }
+}
+```
+
+**Response (201 Created):**
+
+```json
+{
+  "data": {
+    "id": "clxloan001",
+    "externalId": "manual:1704067200000:xyz123",
+    "name": "Home Mortgage",
+    "institution": "TD Bank",
+    "institutionDomain": null,
+    "type": "MORTGAGE",
+    "currency": "USD",
+    "balance": -500000.00,
+    "availableBalance": null,
+    "balanceDate": "2025-01-15T00:00:00.000Z",
+    "isActive": true,
+    "loanDetails": {
+      "loanType": "MORTGAGE",
+      "originalPrincipal": 559000.00,
+      "currentPrincipal": 538830.46,
+      "interestType": "FIXED",
+      "interestRateAnnual": 5.05,
+      "paymentAmount": 1631.86,
+      "paymentFrequency": "SEMI_MONTHLY",
+      "termStartDate": "2024-08-01T00:00:00.000Z",
+      "termMaturityDate": "2027-08-01T00:00:00.000Z",
+      "originalAmortizationMonths": 300,
+      "remainingAmortizationMonths": 279,
+      "renewalDate": null,
+      "notes": "Primary residence mortgage with renewal in 3 years",
+      "lastVerifiedAt": null,
+      "source": "USER_ENTERED",
+      "updatedBy": "system",
+      "createdAt": "2025-01-15T12:00:00.000Z",
+      "updatedAt": "2025-01-15T12:00:00.000Z"
+    },
+    "registeredDetails": null,
+    "creditCardDetails": null,
+    "transactionCount": 0,
+    "recentTransactions": []
+  }
+}
+```
+
+**Error Responses:**
+
+- **400 Bad Request:** Invalid account type (must be liability: CREDIT_CARD, LOAN, MORTGAGE)
+- **400 Validation Error:** Missing required fields or invalid loan details (term date ordering, amortization months validation)
+- **500 Internal Server Error:** Transaction failure or database error
+
+**curl Examples:**
+
+```bash
+# Create credit card
+curl -X POST http://localhost:3000/api/accounts \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "My Visa",
+    "type": "CREDIT_CARD",
+    "institution": "Chase",
+    "balance": -2500
+  }'
+
+# Create mortgage with details
+curl -X POST http://localhost:3000/api/accounts \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Primary Mortgage",
+    "type": "MORTGAGE",
+    "institution": "TD Bank",
+    "balance": -500000,
+    "loanDetails": {
+      "loanType": "MORTGAGE",
+      "originalPrincipal": 559000,
+      "currentPrincipal": 538830,
+      "interestRateAnnual": 5.05,
+      "paymentAmount": 1631.86,
+      "paymentFrequency": "SEMI_MONTHLY",
+      "termStartDate": "2024-08-01T00:00:00.000Z",
+      "termMaturityDate": "2027-08-01T00:00:00.000Z",
+      "originalAmortizationMonths": 300,
+      "remainingAmortizationMonths": 279
+    }
+  }'
+```
+
+---
+
 #### `PATCH /api/accounts/:id/balance`
 
 Updates the stored account balance snapshot so holdings and net worth can be reconciled to institution-reported balances after an import.
