@@ -192,7 +192,7 @@ export async function upsertAccountLoanDetails(id: string, input: UpsertLoanDeta
       renewalDate: input.renewalDate === undefined ? undefined : input.renewalDate,
       notes: input.notes === undefined ? undefined : input.notes,
       lastVerifiedAt: input.lastVerifiedAt === undefined ? undefined : input.lastVerifiedAt,
-      source: input.source ?? 'USER_ENTERED',
+      source: input.source === undefined ? undefined : input.source,
       updatedBy: 'system',
     },
     create: {

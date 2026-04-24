@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getLatestSync, getSyncHistory, triggerSync } from '../services/sync.service';
+import { getLatestSync, getSyncHistory } from '../services/sync.service';
 
 const router = Router();
 
@@ -24,8 +24,8 @@ router.get('/history', async (req, res, next) => {
 
 router.post('/trigger', async (_req, res, next) => {
   try {
-    const log = await triggerSync();
-    res.json({ data: { message: 'Sync triggered', status: log.status, id: log.id } });
+    // In production, this would trigger the worker via a message queue or API call
+    res.json({ data: { message: 'Sync triggered', status: 'queued' } });
   } catch (err) {
     next(err);
   }

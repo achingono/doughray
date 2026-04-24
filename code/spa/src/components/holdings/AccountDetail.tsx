@@ -124,7 +124,7 @@ export function AccountDetail({ accountId, open, onClose, onAccountUpdated }: Re
   useEffect(() => {
     if (!loanOpen || !account) return;
     const details = account.loanDetails;
-    setLoanType(details?.loanType ?? 'MORTGAGE');
+    setLoanType(details?.loanType ?? 'OTHER');
     setInterestType(details?.interestType ?? '');
     setPaymentFrequency(details?.paymentFrequency ?? '');
     setSource(details?.source ?? 'USER_ENTERED');
