@@ -3,6 +3,7 @@ import { decimalToNumber, AccountWithStats } from '../lib/types';
 import { isLiabilityAccountType, LiabilityAccountType, LIABILITY_ACCOUNT_TYPES } from '../lib/account-types';
 import { AppError } from '../middleware/error-handler';
 import { InterestType, LoanDetailSource, LoanType, PaymentFrequency } from '@prisma/client';
+import { getTransactionsForAccount as getLoanTrackedTransactions } from './loan-transaction.service';
 
 interface UpdateAccountBalanceInput {
   balance: number;
@@ -258,6 +259,9 @@ export async function getAccountById(id: string) {
 
   if (!account) return null;
 
+  const isLoanAccount = account.type === 'LOAN' || account.type === 'MORTGAGE';
+  const trackedTransactions = isLoanAccount ? await getLoanTrackedTransactions(id) : [];
+
   return {
     id: account.id,
     externalId: account.externalId,
@@ -305,6 +309,15 @@ export async function getAccountById(id: string) {
       description: t.description,
       payee: t.payee,
       category: t.category ? { id: t.category.id, name: t.category.name, icon: t.category.icon, color: t.category.color } : null,
+    })),
+    trackedTransactions: trackedTransactions.map((t) => ({
+      id: t.id,
+      posted: t.posted,
+      amount: t.amount,
+      description: t.description,
+      sourceTransactionId: t.sourceTransactionId,
+      sourceAccount: t.sourceTransaction.account.name,
+      category: t.sourceTransaction.category,
     })),
   };
 }

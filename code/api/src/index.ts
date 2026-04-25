@@ -12,6 +12,7 @@ import reportRoutes from './routes/reports';
 import syncRoutes from './routes/sync';
 import assetRoutes from './routes/assets';
 import goalRoutes from './routes/goals';
+import loanTransactionRoutes from './routes/loan-transactions';
 import { seedDefaultCategoriesOnStartup } from './lib/seed-categories';
 
 const app = express();
@@ -46,6 +47,7 @@ app.use('/api/reports', reportRoutes);
 app.use('/api/sync', syncRoutes);
 app.use('/api/assets', assetRoutes);
 app.use('/api/goals', goalRoutes);
+app.use('/api/loan-transactions', loanTransactionRoutes);
 
 // Error handler (must be last)
 app.use(errorHandler);

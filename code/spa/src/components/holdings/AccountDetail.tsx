@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -7,9 +7,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { formatCurrency, formatDate } from "@/lib/formatters";
-import { ACCOUNT_TYPE_LABELS, LIABILITY_TYPES, type AccountDetail as AccountDetailType, type LoanDetailSource, type LoanType, type InterestType, type PaymentFrequency } from "@/types";
+import { ACCOUNT_TYPE_LABELS, LIABILITY_TYPES, type AccountDetail as AccountDetailType, type LoanDetailSource, type LoanType, type InterestType, type PaymentFrequency, type LoanTransactionRule, type CreateLoanTransactionRuleInput, type Category } from "@/types";
 import { api } from "@/lib/api";
-import { Pencil } from "lucide-react";
+import { Pencil, Trash2, Plus, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 interface AccountDetailProps {
@@ -101,7 +101,20 @@ export function AccountDetail({ accountId, open, onClose, onAccountUpdated }: Re
   const [lastVerifiedAt, setLastVerifiedAt] = useState('');
   const [notes, setNotes] = useState('');
 
-  const loadAccount = async () => {
+  // Loan transaction tracking state
+  const [trackingOpen, setTrackingOpen] = useState(false);
+  const [rules, setRules] = useState<LoanTransactionRule[]>([]);
+  const [rulesLoading, setRulesLoading] = useState(false);
+  const [isTrackingSubmitting, setIsTrackingSubmitting] = useState(false);
+  const [isRunningTracking, setIsRunningTracking] = useState(false);
+  const [newRuleType, setNewRuleType] = useState<'CATEGORY' | 'PAYEE'>('CATEGORY');
+  const [newRuleCategoryId, setNewRuleCategoryId] = useState('');
+  const [newRulePayee, setNewRulePayee] = useState('');
+  const [newRuleDescription, setNewRuleDescription] = useState('');
+  const [newRuleError, setNewRuleError] = useState<string | null>(null);
+  const [categories, setCategories] = useState<Category[]>([]);
+
+  const loadAccount = useCallback(async () => {
     if (!accountId) return;
     setLoading(true);
     try {
@@ -112,12 +125,12 @@ export function AccountDetail({ accountId, open, onClose, onAccountUpdated }: Re
     } finally {
       setLoading(false);
     }
-  };
+  }, [accountId]);
 
   useEffect(() => {
     if (!accountId || !open) return;
     loadAccount();
-  }, [accountId, open]);
+  }, [accountId, open, loadAccount]);
 
   useEffect(() => {
     if (!adjustOpen || !account) return;
@@ -147,6 +160,100 @@ export function AccountDetail({ accountId, open, onClose, onAccountUpdated }: Re
     setNotes(details?.notes ?? '');
     setLoanError(null);
   }, [loanOpen, account]);
+
+  const loadRules = useCallback(async () => {
+    if (!accountId) return;
+    setRulesLoading(true);
+    try {
+      const response = await api.getLoanTransactionRules(accountId);
+      setRules(response.data);
+    } catch (err) {
+      console.error('Failed to load rules:', err);
+    } finally {
+      setRulesLoading(false);
+    }
+  }, [accountId]);
+
+  const loadCategories = useCallback(async () => {
+    try {
+      const response = await api.getCategories();
+      setCategories(response.data);
+    } catch (err) {
+      console.error('Failed to load categories:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!trackingOpen || !accountId) return;
+    loadRules();
+    loadCategories();
+  }, [trackingOpen, accountId, loadRules, loadCategories]);
+
+  const handleRunTracking = async () => {
+    if (!accountId) return;
+    setIsRunningTracking(true);
+    try {
+      const response = await api.runLoanTransactionTracking(accountId);
+      toast.success(`Tracked ${response.data.trackedCount} transactions`);
+      await loadAccount();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to run tracking');
+    } finally {
+      setIsRunningTracking(false);
+    }
+  };
+
+  const handleAddRule = async () => {
+    if (!accountId) return;
+    if (newRuleType === 'CATEGORY' && !newRuleCategoryId) {
+      setNewRuleError('Select a category');
+      return;
+    }
+    if (newRuleType === 'PAYEE' && !newRulePayee.trim()) {
+      setNewRuleError('Enter a payee name');
+      return;
+    }
+    setNewRuleError(null);
+    setIsTrackingSubmitting(true);
+    try {
+      const data: CreateLoanTransactionRuleInput = {
+        ruleType: newRuleType,
+        categoryId: newRuleType === 'CATEGORY' ? newRuleCategoryId : undefined,
+        normalizedPayee: newRuleType === 'PAYEE' ? newRulePayee.trim() : undefined,
+        description: newRuleDescription.trim() || undefined,
+      };
+      await api.createLoanTransactionRule(accountId, data);
+      toast.success('Rule added');
+      await loadRules();
+      setNewRuleCategoryId('');
+      setNewRulePayee('');
+      setNewRuleDescription('');
+    } catch (err: any) {
+      setNewRuleError(err.message || 'Failed to add rule');
+    } finally {
+      setIsTrackingSubmitting(false);
+    }
+  };
+
+  const handleDeleteRule = async (ruleId: string) => {
+    try {
+      await api.deleteLoanTransactionRule(ruleId);
+      toast.success('Rule deleted');
+      await loadRules();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete rule');
+    }
+  };
+
+  const handleToggleRule = async (rule: LoanTransactionRule) => {
+    try {
+      await api.updateLoanTransactionRule(rule.id, { isActive: !rule.isActive });
+      toast.success(rule.isActive ? 'Rule disabled' : 'Rule enabled');
+      await loadRules();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update rule');
+    }
+  };
 
   const handleAdjustSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -325,6 +432,11 @@ export function AccountDetail({ accountId, open, onClose, onAccountUpdated }: Re
               {canEditLoanDetails && (
                 <Button variant="outline" onClick={() => setLoanOpen(true)}>
                   <Pencil className="mr-2 h-4 w-4" /> Edit Loan Details
+                </Button>
+              )}
+              {canEditLoanDetails && (
+                <Button variant="outline" onClick={() => setTrackingOpen(true)}>
+                  <RefreshCw className="mr-2 h-4 w-4" /> Track Transactions
                 </Button>
               )}
             </div>
@@ -578,6 +690,155 @@ export function AccountDetail({ accountId, open, onClose, onAccountUpdated }: Re
             <Button type="submit" disabled={isLoanSubmitting}>{isLoanSubmitting ? 'Saving...' : 'Save Loan Details'}</Button>
           </DialogFooter>
         </form>
+      </DialogContent>
+    </Dialog>
+    <Dialog open={trackingOpen} onOpenChange={setTrackingOpen}>
+      <DialogContent className="sm:max-w-[500px] max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Transaction Tracking</DialogTitle>
+          <DialogDescription>
+            Automatically track loan payments from your source accounts based on categories or payee names.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="flex justify-end">
+            <Button variant="outline" size="sm" onClick={handleRunTracking} disabled={isRunningTracking}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${isRunningTracking ? 'animate-spin' : ''}`} />
+              {isRunningTracking ? 'Running...' : 'Run Tracking Now'}
+            </Button>
+          </div>
+
+          {account?.trackedTransactions && account.trackedTransactions.length > 0 && (
+            <div>
+              <h4 className="font-semibold mb-2">Tracked Transactions ({account.trackedTransactions.length})</h4>
+              <div className="space-y-2 max-h-40 overflow-y-auto">
+                {account.trackedTransactions.map(t => (
+                  <div key={t.id} className="flex items-center justify-between text-sm p-2 bg-muted rounded">
+                    <div>
+                      <p className="font-medium">{t.description}</p>
+                      <p className="text-xs text-muted-foreground">{t.sourceAccount} • {formatDate(t.posted)}</p>
+                    </div>
+                    <span className="font-medium">{formatCurrency(t.amount)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <Separator />
+
+          <div>
+            <h4 className="font-semibold mb-2">Add Tracking Rule</h4>
+            <div className="space-y-3">
+              <div className="space-y-2">
+                <Label>Rule Type</Label>
+                <select
+                  className="w-full rounded-md border px-3 py-2 text-sm bg-background"
+                  value={newRuleType}
+                  onChange={(e) => setNewRuleType(e.target.value as 'CATEGORY' | 'PAYEE')}
+                >
+                  <option value="CATEGORY">By Category</option>
+                  <option value="PAYEE">By Payee Name</option>
+                </select>
+              </div>
+
+              {newRuleType === 'CATEGORY' ? (
+                <div className="space-y-2">
+                  <Label>Category</Label>
+                  <select
+                    className="w-full rounded-md border px-3 py-2 text-sm bg-background"
+                    value={newRuleCategoryId}
+                    onChange={(e) => setNewRuleCategoryId(e.target.value)}
+                  >
+                    <option value="">Select category...</option>
+                    {categories.map((cat) => (
+                      <option key={cat.id} value={cat.id}>{cat.name}</option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Label>Payee Name</Label>
+                  <Input
+                    value={newRulePayee}
+                    onChange={(e) => setNewRulePayee(e.target.value)}
+                    placeholder="e.g., Bank of America"
+                  />
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <Label>Description (optional)</Label>
+                <Input
+                  value={newRuleDescription}
+                  onChange={(e) => setNewRuleDescription(e.target.value)}
+                  placeholder="e.g., Monthly mortgage payment"
+                />
+              </div>
+
+              {newRuleError && (
+                <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                  {newRuleError}
+                </div>
+              )}
+
+              <Button onClick={handleAddRule} disabled={isTrackingSubmitting} className="w-full">
+                <Plus className="mr-2 h-4 w-4" />
+                {isTrackingSubmitting ? 'Adding...' : 'Add Rule'}
+              </Button>
+            </div>
+          </div>
+
+          <Separator />
+
+          <div>
+            <h4 className="font-semibold mb-2">Active Rules</h4>
+            {rulesLoading ? (
+              <p className="text-sm text-muted-foreground">Loading...</p>
+            ) : rules.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No tracking rules configured.</p>
+            ) : (
+              <div className="space-y-2">
+                {rules.map(rule => {
+                  const categoryName = rule.ruleType === 'CATEGORY'
+                    ? categories.find(category => category.id === rule.categoryId)?.name ?? "Unknown Category"
+                    : null;
+
+                  return (
+                    <div key={rule.id} className="flex items-center justify-between p-2 border rounded">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={rule.isActive}
+                          onChange={() => handleToggleRule(rule)}
+                          className="h-4 w-4"
+                        />
+                        <div>
+                          <p className="text-sm font-medium">
+                            {rule.ruleType === 'CATEGORY'
+                              ? `Category: ${categoryName}`
+                              : `Payee: ${rule.normalizedPayee}`}
+                          </p>
+                          {rule.description && (
+                            <p className="text-xs text-muted-foreground">{rule.description}</p>
+                          )}
+                        </div>
+                      </div>
+                      <Button variant="ghost" size="icon" onClick={() => handleDeleteRule(rule.id)}>
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setTrackingOpen(false)}>Close</Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
     </>

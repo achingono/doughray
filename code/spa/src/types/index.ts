@@ -1,3 +1,5 @@
+export type DateString = string; // ISO 8601 format (e.g., "2024-01-15T00:00:00.000Z")
+
 export interface Account {
   id: string;
   name: string;
@@ -6,7 +8,7 @@ export interface Account {
   currency: string;
   balance: number;
   availableBalance: number | null;
-  balanceDate: string;
+  balanceDate: DateString;
   transactionCount: number;
 }
 
@@ -21,6 +23,38 @@ export interface AccountDetail extends Account {
   savingsDetails: null;
   genericMetadata: null;
   recentTransactions: TransactionSummary[];
+  trackedTransactions?: TrackedTransaction[];
+}
+
+export interface TrackedTransaction {
+  id: string;
+  posted: DateString;
+  amount: number;
+  description: string;
+  sourceTransactionId: string;
+  sourceAccount: string;
+  category: CategoryRef | null;
+}
+
+export type LoanTransactionRuleType = 'CATEGORY' | 'PAYEE';
+
+export interface LoanTransactionRule {
+  id: string;
+  accountId: string;
+  ruleType: LoanTransactionRuleType;
+  categoryId: string | null;
+  normalizedPayee: string | null;
+  description: string | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateLoanTransactionRuleInput {
+  ruleType: LoanTransactionRuleType;
+  categoryId?: string;
+  normalizedPayee?: string;
+  description?: string;
 }
 
 export type LoanType = 'MORTGAGE' | 'AUTO_LOAN' | 'PERSONAL_LOAN' | 'HELOC' | 'OTHER';
@@ -147,7 +181,7 @@ export interface CreditCardDetailsResponse extends CreditCardDetails {
 
 export interface TransactionSummary {
   id: string;
-  posted: string;
+  posted: DateString;
   amount: number;
   description: string;
   payee: string | null;
@@ -156,7 +190,7 @@ export interface TransactionSummary {
 
 export interface Transaction {
   id: string;
-  posted: string;
+  posted: DateString;
   amount: number;
   description: string;
   payee: string | null;
