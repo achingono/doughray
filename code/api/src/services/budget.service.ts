@@ -1,6 +1,40 @@
 import { prisma } from '../lib/prisma';
 import { decimalToNumber } from '../lib/types';
 
+const EXCLUDED_BUDGET_CATEGORY_NAMES = new Set(['Transfers']);
+
+async function getDescendantCategoryIds(rootCategoryId: string): Promise<string[]> {
+  const categories = await prisma.category.findMany({
+    select: { id: true, parentId: true, name: true },
+  });
+
+  const childrenByParent = new Map<string | null, Array<{ id: string; name: string }>>();
+  for (const category of categories) {
+    const siblings = childrenByParent.get(category.parentId) ?? [];
+    siblings.push({ id: category.id, name: category.name });
+    childrenByParent.set(category.parentId, siblings);
+  }
+
+  const ids = new Set<string>([rootCategoryId]);
+  const stack = [rootCategoryId];
+
+  while (stack.length > 0) {
+    const currentId = stack.pop() as string;
+    const children = childrenByParent.get(currentId) ?? [];
+    for (const child of children) {
+      if (EXCLUDED_BUDGET_CATEGORY_NAMES.has(child.name)) {
+        continue;
+      }
+      if (!ids.has(child.id)) {
+        ids.add(child.id);
+        stack.push(child.id);
+      }
+    }
+  }
+
+  return Array.from(ids);
+}
+
 export interface BudgetWithProgress {
   id: string;
   categoryId: string;
@@ -29,9 +63,11 @@ export async function getBudgets(): Promise<BudgetWithProgress[]> {
   const results: BudgetWithProgress[] = [];
 
   for (const b of budgets) {
+    const categoryIds = await getDescendantCategoryIds(b.categoryId);
+
     const spent = await prisma.transaction.aggregate({
       where: {
-        categoryId: b.categoryId,
+        categoryId: { in: categoryIds },
         amount: { lt: 0 },
         posted: { gte: startOfMonth, lte: endOfMonth },
       },
