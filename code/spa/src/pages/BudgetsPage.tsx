@@ -76,7 +76,7 @@ export function BudgetsPage() {
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold tracking-tight">Budgets</h2>
         <div className="flex items-center gap-4">
-          <Select value={period} onValueChange={setPeriod}>
+          <Select value={period} onValueChange={value => setPeriod(value as FilterPeriod)}>
             <SelectTrigger className="w-[140px]">
               <SelectValue />
             </SelectTrigger>

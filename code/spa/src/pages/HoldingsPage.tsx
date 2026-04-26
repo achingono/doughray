@@ -68,7 +68,7 @@ export function HoldingsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold tracking-tight">Holdings</h2>
-        <Select value={period} onValueChange={setPeriod}>
+        <Select value={period} onValueChange={value => setPeriod(value as FilterPeriod)}>
           <SelectTrigger className="w-[140px]">
             <SelectValue />
           </SelectTrigger>
