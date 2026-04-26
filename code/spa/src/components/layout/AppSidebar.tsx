@@ -9,6 +9,7 @@ import {
   Settings,
 } from "lucide-react";
 import { useLocation, Link } from "react-router-dom";
+import { motion } from "framer-motion";
 import {
   Sidebar,
   SidebarContent,
@@ -66,9 +67,15 @@ export function AppSidebar() {
                     asChild
                     isActive={location.pathname === item.path}
                   >
-                    <Link to={item.path} onClick={() => setOpenMobile(false)}>
-                      <item.icon className="h-4 w-4" />
-                      <span>{item.title}</span>
+                    <Link to={item.path} onClick={() => setOpenMobile(false)} className="w-full">
+                      <motion.div 
+                        whileHover={{ x: 5 }}
+                        whileTap={{ scale: 0.95 }}
+                        className="flex items-center gap-2"
+                      >
+                        <item.icon className="h-4 w-4" />
+                        <span>{item.title}</span>
+                      </motion.div>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>

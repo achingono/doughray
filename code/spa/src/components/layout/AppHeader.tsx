@@ -8,6 +8,8 @@ import {
 } from "@/components/ui/breadcrumb";
 import { useLocation } from "react-router-dom";
 import { BRAND } from "@/lib/brand";
+import { motion, useScroll, useMotionValueEvent } from "framer-motion";
+import { useState } from "react";
 
 const pageTitles: Record<string, string> = {
   "/": "Dashboard",
@@ -23,9 +25,28 @@ const pageTitles: Record<string, string> = {
 export function AppHeader() {
   const location = useLocation();
   const title = pageTitles[location.pathname] || "Dashboard";
+  const { scrollY } = useScroll();
+  const [hidden, setHidden] = useState(false);
+
+  useMotionValueEvent(scrollY, "change", (latest) => {
+    const previous = scrollY.getPrevious() || 0;
+    if (latest > previous && latest > 150) {
+      setHidden(true);
+    } else {
+      setHidden(false);
+    }
+  });
 
   return (
-    <header className="sticky top-0 z-10 flex h-16 shrink-0 items-center gap-2 border-b border-border/60 bg-background/80 px-4 backdrop-blur">
+    <motion.header 
+      variants={{
+        visible: { y: 0 },
+        hidden: { y: "-100%" },
+      }}
+      animate={hidden ? "hidden" : "visible"}
+      transition={{ duration: 0.35, ease: "easeInOut" }}
+      className="sticky top-0 z-10 flex h-16 shrink-0 items-center gap-2 glass-nav px-4"
+    >
       <SidebarTrigger className="-ml-1" />
       <Separator orientation="vertical" className="mr-2 h-4" />
       <Breadcrumb>
@@ -38,6 +59,6 @@ export function AppHeader() {
       <div className="ml-auto hidden rounded-full border border-border/70 bg-card px-3 py-1 text-xs text-muted-foreground md:block">
         {BRAND.signature}
       </div>
-    </header>
+    </motion.header>
   );
 }
