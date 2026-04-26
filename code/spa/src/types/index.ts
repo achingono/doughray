@@ -1,5 +1,7 @@
 export type DateString = string; // ISO 8601 format (e.g., "2024-01-15T00:00:00.000Z")
 
+export type FilterPeriod = 'all' | '3' | '6' | '12' | '24';
+
 export interface Account {
   id: string;
   name: string;

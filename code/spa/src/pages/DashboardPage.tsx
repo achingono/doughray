@@ -11,6 +11,7 @@ import { DateRangeFilter } from "@/components/dashboard/DateRangeFilter";
 import { Skeleton } from "@/components/ui/skeleton";
 import dashboardHero from "@/assets/doughray-hero.png";
 import { BRAND } from "@/lib/brand";
+import type { FilterPeriod } from "@/types";
 
 const LOADING_CARD_KEYS = ['dashboard-loading-1', 'dashboard-loading-2', 'dashboard-loading-3', 'dashboard-loading-4'] as const;
 
@@ -41,7 +42,7 @@ function toMonthRange(dateString: string): { startDate: string; endDate: string 
 export function DashboardPage() {
   const navigate = useNavigate();
   const [selectedAccount, setSelectedAccount] = useState("all");
-  const [period, setPeriod] = useState("all");
+  const [period, setPeriod] = useState<FilterPeriod>("all");
   const accountId = selectedAccount === "all" ? undefined : selectedAccount;
   const { summary, trends, spending, budgets, goals, loading, error } = useDashboard(accountId, period);
   const { accounts } = useAccounts();

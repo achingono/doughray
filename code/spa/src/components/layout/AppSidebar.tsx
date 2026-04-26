@@ -20,6 +20,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarFooter,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import brandMark from "@/assets/doughray-mark.png";
 import { BRAND } from "@/lib/brand";
@@ -37,11 +38,12 @@ const navItems = [
 
 export function AppSidebar() {
   const location = useLocation();
+  const { setOpenMobile } = useSidebar();
 
   return (
     <Sidebar>
       <SidebarHeader className="border-b border-sidebar-border/60 px-5 py-4">
-        <Link to="/" className="flex items-center gap-3">
+        <Link to="/" className="flex items-center gap-3" onClick={() => setOpenMobile(false)}>
           <img
             src={brandMark}
             alt={`${BRAND.name} mark`}
@@ -64,7 +66,7 @@ export function AppSidebar() {
                     asChild
                     isActive={location.pathname === item.path}
                   >
-                    <Link to={item.path}>
+                    <Link to={item.path} onClick={() => setOpenMobile(false)}>
                       <item.icon className="h-4 w-4" />
                       <span>{item.title}</span>
                     </Link>

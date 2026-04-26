@@ -192,7 +192,13 @@ export const api = {
   getHoldingsHistory: (period: number | string = 'all') => request<{ data: import('../types').TrendDataPoint[] }>(`/holdings/history?period=${period}`),
 
   // Budgets
-  getBudgets: () => request<{ data: import('../types').Budget[] }>('/budgets'),
+  getBudgets: (period?: string) => {
+    const params = new URLSearchParams();
+    if (period) params.set('period', period);
+    const qs = params.toString();
+    const querySuffix = qs ? `?${qs}` : '';
+    return request<{ data: import('../types').Budget[] }>(`/budgets${querySuffix}`);
+  },
   createBudget: (data: { categoryId: string; amount: number; period: string; startDate: string; endDate?: string }) =>
     request('/budgets', { method: 'POST', body: JSON.stringify(data) }),
   updateBudget: (id: string, data: any) =>

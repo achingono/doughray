@@ -13,13 +13,13 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { formatCurrency } from "@/lib/formatters";
-import { ACCOUNT_TYPE_LABELS, ASSET_TYPES, LIABILITY_TYPES, type CreateLiabilityAccountInput } from "@/types";
+import { ACCOUNT_TYPE_LABELS, ASSET_TYPES, LIABILITY_TYPES, type CreateLiabilityAccountInput, type FilterPeriod } from "@/types";
 import { toast } from "sonner";
 
 const SUMMARY_SKELETON_KEYS = ['holdings-summary-1', 'holdings-summary-2', 'holdings-summary-3'] as const;
 
 export function HoldingsPage() {
-  const [period, setPeriod] = useState("all");
+  const [period, setPeriod] = useState<FilterPeriod>("all");
   const { holdings, history, loading, error, refresh } = useHoldings(period);
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
   const [showLiabilityForm, setShowLiabilityForm] = useState(false);
