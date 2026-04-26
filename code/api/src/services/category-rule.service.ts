@@ -3,6 +3,13 @@ import { normalizePayee } from '../lib/normalize-payee';
 import type { PaginatedResponse } from '../lib/types';
 import { AppError } from '../middleware/error-handler';
 
+export interface CreateCategoryRuleInput {
+  normalizedPayee: string;
+  categoryId: string;
+  accountId?: string;
+  sourceTransactionId: string;
+}
+
 export interface CategoryRuleListItem {
   id: string;
   normalizedPayee: string;
@@ -13,6 +20,11 @@ export interface CategoryRuleListItem {
   updatedAt: Date;
   category: { id: string; name: string; icon: string | null; color: string | null };
   account: { id: string; name: string; institution: string | null } | null;
+}
+
+export async function createCategoryRule(input: CreateCategoryRuleInput) {
+  const result = await prisma.categoryRule.create({ data: input, select: { id: true, normalizedPayee: true, categoryId: true, accountId: true } });
+  return result;
 }
 
 export async function listCategoryRules(page = 1, limit = 20): Promise<PaginatedResponse<CategoryRuleListItem>> {
