@@ -379,7 +379,7 @@ export function AccountDetail({ accountId, open, onClose, onAccountUpdated }: Re
   return (
     <>
     <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
-      <SheetContent className="w-[400px] sm:w-[540px] overflow-y-auto">
+      <SheetContent className="w-[90vw] sm:w-[540px] md:w-[720px] lg:w-[800px] overflow-y-auto" data-lenis-prevent>
         <SheetHeader>
           <SheetTitle>{account?.name || 'Account Details'}</SheetTitle>
           <SheetDescription>{account?.institution || 'Loading...'}</SheetDescription>
@@ -514,23 +514,47 @@ export function AccountDetail({ accountId, open, onClose, onAccountUpdated }: Re
 
             <div>
               <h4 className="font-semibold mb-3">Recent Transactions</h4>
-              {account.recentTransactions.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No transactions yet.</p>
-              ) : (
-                <div className="space-y-2">
-                  {account.recentTransactions.map(t => (
-                    <div key={t.id} className="flex items-center justify-between py-1.5">
-                      <div>
-                        <p className="text-sm">{t.description}</p>
-                        <p className="text-xs text-muted-foreground">{formatDate(t.posted)}</p>
-                      </div>
-                      <span className={`text-sm font-medium ${t.amount >= 0 ? 'text-emerald-600' : ''}`}>
-                        {t.amount >= 0 ? '+' : ''}{formatCurrency(t.amount)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
+              {(() => {
+                const combinedTransactions = [
+                  ...(account.recentTransactions?.map(t => ({ ...t, type: 'regular' as const })) || []),
+                  ...(account.trackedTransactions?.map(t => ({
+                    id: t.id,
+                    posted: t.posted,
+                    description: t.description + (t.sourceAccount ? ` (from ${t.sourceAccount})` : ''),
+                    amount: t.amount,
+                    type: 'tracked' as const
+                  })) || [])
+                ].sort((a, b) => new Date(b.posted).getTime() - new Date(a.posted).getTime());
+
+                if (combinedTransactions.length === 0) {
+                  return <p className="text-sm text-muted-foreground">No transactions yet.</p>;
+                }
+
+                return (
+                  <div className="space-y-2">
+                    {combinedTransactions.map((t, index) => {
+                      // Ensure unique key: prefer id, otherwise include index in the fallback
+                      const key = t.id !== undefined ? `${t.type}-${t.id}` : `${t.type}-${t.posted}-${index}`;
+                      return (
+                        <div key={key} className="flex items-center justify-between py-1.5">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <p className="text-sm">{t.description}</p>
+                              {t.type === 'tracked' && (
+                                <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Tracked</Badge>
+                              )}
+                            </div>
+                            <p className="text-xs text-muted-foreground">{formatDate(t.posted)}</p>
+                          </div>
+                          <span className={`text-sm font-medium ${t.amount >= 0 ? 'text-emerald-600' : ''}`}>
+                            {t.amount >= 0 ? '+' : ''}{formatCurrency(t.amount)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
             </div>
           </div>
         )}
@@ -604,7 +628,7 @@ export function AccountDetail({ accountId, open, onClose, onAccountUpdated }: Re
       </DialogContent>
     </Dialog>
     <Dialog open={loanOpen} onOpenChange={setLoanOpen}>
-      <DialogContent className="sm:max-w-[620px] max-h-[85vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-[620px] max-h-[85vh] overflow-y-auto" data-lenis-prevent>
         <DialogHeader>
           <DialogTitle>Loan Details</DialogTitle>
           <DialogDescription>
@@ -693,7 +717,7 @@ export function AccountDetail({ accountId, open, onClose, onAccountUpdated }: Re
       </DialogContent>
     </Dialog>
     <Dialog open={trackingOpen} onOpenChange={setTrackingOpen}>
-      <DialogContent className="sm:max-w-[500px] max-h-[80vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-[500px] max-h-[80vh] overflow-y-auto" data-lenis-prevent>
         <DialogHeader>
           <DialogTitle>Transaction Tracking</DialogTitle>
           <DialogDescription>
