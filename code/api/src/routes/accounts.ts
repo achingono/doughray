@@ -10,10 +10,27 @@ import {
   upsertAccountCreditCardDetails,
   upsertAccountLoanDetails,
   upsertAccountRegisteredDetails,
+  createAccount,
 } from '../services/account.service';
 import { AppError } from '../middleware/error-handler';
 
 const router = Router();
+
+const toOptionalDate = (value: string | undefined): Date | undefined => {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  return new Date(value);
+};
+
+const toOptionalNullableDate = (value: string | null | undefined): Date | null | undefined => {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  return value ? new Date(value) : null;
+};
 
 const balanceUpdateSchema = z.object({
   balance: z.number().finite(),
@@ -70,6 +87,16 @@ const loanDetailsSchema = z
       });
     }
   });
+
+const createAccountSchema = z.object({
+  name: z.string().trim().min(1),
+  type: z.enum(['CREDIT_CARD', 'LOAN', 'MORTGAGE']),
+  institution: z.string().trim().nullable().default(null),
+  currency: z.string().length(3).default('USD'),
+  balance: z.number().finite(),
+  balanceDate: z.string().datetime().optional(),
+  loanDetails: loanDetailsSchema.optional(),
+});
 
 const registeredDetailsSchema = z
   .object({
@@ -152,13 +179,59 @@ router.get('/:id', async (req, res, next) => {
   }
 });
 
+router.post('/', async (req, res, next) => {
+  try {
+    const body = createAccountSchema.parse(req.body);
+    const account = await createAccount({
+      name: body.name,
+      type: body.type,
+      institution: body.institution ?? null,
+      currency: body.currency,
+      balance: body.balance,
+      balanceDate: toOptionalDate(body.balanceDate),
+      loanDetails: body.loanDetails ? {
+        loanType: body.loanDetails.loanType,
+        originalPrincipal: body.loanDetails.originalPrincipal,
+        currentPrincipal: body.loanDetails.currentPrincipal,
+        interestType: body.loanDetails.interestType,
+        interestRateAnnual: body.loanDetails.interestRateAnnual,
+        paymentAmount: body.loanDetails.paymentAmount,
+        paymentFrequency: body.loanDetails.paymentFrequency,
+        termStartDate: toOptionalNullableDate(body.loanDetails.termStartDate),
+        termMaturityDate: toOptionalNullableDate(body.loanDetails.termMaturityDate),
+        originalAmortizationMonths: body.loanDetails.originalAmortizationMonths,
+        remainingAmortizationMonths: body.loanDetails.remainingAmortizationMonths,
+        renewalDate: toOptionalNullableDate(body.loanDetails.renewalDate),
+        notes: body.loanDetails.notes,
+        lastVerifiedAt: toOptionalNullableDate(body.loanDetails.lastVerifiedAt),
+        source: body.loanDetails.source,
+      } : undefined,
+    });
+
+    res.status(201).json({ data: account });
+  } catch (err) {
+    if (err instanceof ZodError) {
+      res.status(400).json({
+        error: {
+          message: 'Validation error',
+          code: 'VALIDATION_ERROR',
+          details: err.errors,
+        },
+      });
+      return;
+    }
+
+    next(err);
+  }
+});
+
 router.patch('/:id/balance', async (req, res, next) => {
   try {
     const body = balanceUpdateSchema.parse(req.body);
     const account = await updateAccountBalance(req.params.id, {
       balance: body.balance,
       availableBalance: body.availableBalance,
-      balanceDate: body.balanceDate ? new Date(body.balanceDate) : undefined,
+      balanceDate: toOptionalDate(body.balanceDate),
     });
 
     if (!account) {
@@ -221,13 +294,13 @@ router.patch('/:id/loan-details', async (req, res, next) => {
       interestRateAnnual: body.interestRateAnnual,
       paymentAmount: body.paymentAmount,
       paymentFrequency: body.paymentFrequency,
-      termStartDate: body.termStartDate === undefined ? undefined : body.termStartDate ? new Date(body.termStartDate) : null,
-      termMaturityDate: body.termMaturityDate === undefined ? undefined : body.termMaturityDate ? new Date(body.termMaturityDate) : null,
+      termStartDate: toOptionalNullableDate(body.termStartDate),
+      termMaturityDate: toOptionalNullableDate(body.termMaturityDate),
       originalAmortizationMonths: body.originalAmortizationMonths,
       remainingAmortizationMonths: body.remainingAmortizationMonths,
-      renewalDate: body.renewalDate === undefined ? undefined : body.renewalDate ? new Date(body.renewalDate) : null,
+      renewalDate: toOptionalNullableDate(body.renewalDate),
       notes: body.notes,
-      lastVerifiedAt: body.lastVerifiedAt === undefined ? undefined : body.lastVerifiedAt ? new Date(body.lastVerifiedAt) : null,
+      lastVerifiedAt: toOptionalNullableDate(body.lastVerifiedAt),
       source: body.source,
     });
 
@@ -274,8 +347,7 @@ router.patch('/:id/registered-details', async (req, res, next) => {
       contributedThisYear: body.contributedThisYear,
       unusedCarryforward: body.unusedCarryforward,
       beneficiaryName: body.beneficiaryName,
-      beneficiaryDateOfBirth:
-        body.beneficiaryDateOfBirth === undefined ? undefined : body.beneficiaryDateOfBirth ? new Date(body.beneficiaryDateOfBirth) : null,
+      beneficiaryDateOfBirth: toOptionalNullableDate(body.beneficiaryDateOfBirth),
       grantRoomAvailable: body.grantRoomAvailable,
       grantsReceived: body.grantsReceived,
       subscriptionLimit: body.subscriptionLimit,
@@ -326,7 +398,7 @@ router.patch('/:id/credit-card-details', async (req, res, next) => {
       annualPercentageRate: body.annualPercentageRate,
       minimumPaymentDueDate: body.minimumPaymentDueDate,
       lastStatementBalance: body.lastStatementBalance,
-      lastStatementDate: body.lastStatementDate === undefined ? undefined : body.lastStatementDate ? new Date(body.lastStatementDate) : null,
+      lastStatementDate: toOptionalNullableDate(body.lastStatementDate),
       hasAnnualFee: body.hasAnnualFee,
       annualFeeAmount: body.annualFeeAmount,
       rewardsProgram: body.rewardsProgram,

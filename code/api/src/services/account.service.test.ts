@@ -7,9 +7,11 @@ const { prismaMock } = vi.hoisted(() => ({
       findMany: vi.fn(),
       findUnique: vi.fn(),
       update: vi.fn(),
+      create: vi.fn(),
     },
     accountLoanDetails: {
       upsert: vi.fn(),
+      create: vi.fn(),
     },
     accountRegisteredDetails: {
       upsert: vi.fn(),
@@ -17,6 +19,7 @@ const { prismaMock } = vi.hoisted(() => ({
     accountCreditCardDetails: {
       upsert: vi.fn(),
     },
+    $transaction: vi.fn(),
   },
 }));
 
@@ -24,6 +27,7 @@ vi.mock('../lib/prisma', () => ({ prisma: prismaMock }));
 
 import { AppError } from '../middleware/error-handler';
 import {
+  createAccount,
   getAccountById,
   getAccountCreditCardDetails,
   getAccountRegisteredDetails,
@@ -496,5 +500,193 @@ describe('account.service', () => {
         lastVerifiedAt: new Date('2026-04-15T00:00:00.000Z'),
       }),
     ).rejects.toBeInstanceOf(AppError);
+  });
+
+  it('creates a liability account without loan details', async () => {
+    const mockTx = {
+      account: {
+        create: vi.fn().mockResolvedValue({
+          id: 'new-liability',
+          externalId: 'manual:1234567890:abc123',
+          name: 'My Credit Card',
+          type: 'CREDIT_CARD',
+          institution: 'Bank X',
+          currency: 'USD',
+          balance: new Decimal('-2500'),
+          balanceDate: new Date('2026-04-24T00:00:00.000Z'),
+        }),
+      },
+    };
+
+    prismaMock.$transaction.mockImplementation(async (callback: any) => {
+      return callback(mockTx);
+    });
+
+    prismaMock.account.findUnique.mockResolvedValue({
+      id: 'new-liability',
+      externalId: 'manual:1234567890:abc123',
+      name: 'My Credit Card',
+      type: 'CREDIT_CARD',
+      institution: 'Bank X',
+      institutionDomain: null,
+      currency: 'USD',
+      balance: new Decimal('-2500'),
+      availableBalance: null,
+      balanceDate: new Date('2026-04-24T00:00:00.000Z'),
+      isActive: true,
+      _count: { transactions: 0 },
+      loanDetails: null,
+      registeredDetails: null,
+      creditCardDetails: null,
+      transactions: [],
+    });
+
+    const result = await createAccount({
+      name: 'My Credit Card',
+      type: 'CREDIT_CARD',
+      institution: 'Bank X',
+      balance: -2500,
+      balanceDate: new Date('2026-04-24T00:00:00.000Z'),
+    });
+
+    expect(mockTx.account.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        name: 'My Credit Card',
+        type: 'CREDIT_CARD',
+        institution: 'Bank X',
+        balance: -2500,
+      }),
+    });
+    expect(result).toEqual(
+      expect.objectContaining({
+        id: 'new-liability',
+        name: 'My Credit Card',
+        type: 'CREDIT_CARD',
+      }),
+    );
+  });
+
+  it('creates a LOAN account with loan details', async () => {
+    const mockTx = {
+      account: {
+        create: vi.fn().mockResolvedValue({
+          id: 'new-loan',
+          externalId: 'manual:1234567890:xyz789',
+          name: 'Car Loan',
+          type: 'LOAN',
+          institution: 'Credit Union',
+          currency: 'USD',
+          balance: new Decimal('-35000'),
+          balanceDate: new Date('2026-04-24T00:00:00.000Z'),
+        }),
+      },
+      accountLoanDetails: {
+        create: vi.fn().mockResolvedValue({
+          accountId: 'new-loan',
+          loanType: 'AUTO_LOAN',
+        }),
+      },
+    };
+
+    prismaMock.$transaction.mockImplementation(async (callback: any) => {
+      return callback(mockTx);
+    });
+
+    prismaMock.account.findUnique.mockResolvedValue({
+      id: 'new-loan',
+      externalId: 'manual:1234567890:xyz789',
+      name: 'Car Loan',
+      type: 'LOAN',
+      institution: 'Credit Union',
+      institutionDomain: null,
+      currency: 'USD',
+      balance: new Decimal('-35000'),
+      availableBalance: null,
+      balanceDate: new Date('2026-04-24T00:00:00.000Z'),
+      isActive: true,
+      _count: { transactions: 0 },
+      loanDetails: {
+        accountId: 'new-loan',
+        loanType: 'AUTO_LOAN',
+        originalPrincipal: new Decimal('40000'),
+        currentPrincipal: new Decimal('35000'),
+        interestRateAnnual: new Decimal('6.5'),
+        paymentAmount: new Decimal('750'),
+        paymentFrequency: 'MONTHLY',
+        termStartDate: new Date('2024-04-01T00:00:00.000Z'),
+        termMaturityDate: new Date('2031-04-01T00:00:00.000Z'),
+        originalAmortizationMonths: 84,
+        remainingAmortizationMonths: 60,
+        source: 'USER_ENTERED',
+      },
+      registeredDetails: null,
+      creditCardDetails: null,
+      transactions: [],
+    });
+
+    const result = await createAccount({
+      name: 'Car Loan',
+      type: 'LOAN',
+      institution: 'Credit Union',
+      balance: -35000,
+      balanceDate: new Date('2026-04-24T00:00:00.000Z'),
+      loanDetails: {
+        loanType: 'AUTO_LOAN',
+        originalPrincipal: 40000,
+        currentPrincipal: 35000,
+        interestRateAnnual: 6.5,
+        paymentAmount: 750,
+        paymentFrequency: 'MONTHLY',
+        termStartDate: new Date('2024-04-01T00:00:00.000Z'),
+        termMaturityDate: new Date('2031-04-01T00:00:00.000Z'),
+        originalAmortizationMonths: 84,
+        remainingAmortizationMonths: 60,
+        source: 'USER_ENTERED',
+      },
+    });
+
+    expect(mockTx.accountLoanDetails.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          accountId: 'new-loan',
+          loanType: 'AUTO_LOAN',
+          originalPrincipal: 40000,
+        }),
+      }),
+    );
+    expect(result).toEqual(
+      expect.objectContaining({
+        id: 'new-loan',
+        name: 'Car Loan',
+        loanDetails: expect.objectContaining({
+          loanType: 'AUTO_LOAN',
+          originalPrincipal: 40000,
+        }),
+      }),
+    );
+  });
+
+  it('rejects non-liability account types for manual creation', async () => {
+    await expect(
+      createAccount({
+        name: 'Checking Account',
+        type: 'CHECKING',
+        balance: 1000,
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'VALIDATION_ERROR',
+    });
+
+    await expect(
+      createAccount({
+        name: 'Investment Account',
+        type: 'INVESTMENT',
+        balance: 50000,
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'VALIDATION_ERROR',
+    });
   });
 });

@@ -5,16 +5,18 @@ import { BudgetForm } from "@/components/budgets/BudgetForm";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { formatCurrency } from "@/lib/formatters";
 import { PiggyBank, Plus } from "lucide-react";
 import { toast } from "sonner";
-import type { Budget } from "@/types";
+import type { Budget, FilterPeriod } from "@/types";
 
 const SUMMARY_SKELETON_KEYS = ['budget-summary-1', 'budget-summary-2', 'budget-summary-3'] as const;
 const CARD_SKELETON_KEYS = ['budget-card-1', 'budget-card-2', 'budget-card-3', 'budget-card-4'] as const;
 
 export function BudgetsPage() {
-  const { budgets, loading, error, createBudget, updateBudget, deleteBudget } = useBudgets();
+  const [period, setPeriod] = useState<FilterPeriod>("all");
+  const { budgets, loading, error, createBudget, updateBudget, deleteBudget } = useBudgets(period);
   const [formOpen, setFormOpen] = useState(false);
   const [editingBudget, setEditingBudget] = useState<Budget | null>(null);
 
@@ -73,9 +75,23 @@ export function BudgetsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold tracking-tight">Budgets</h2>
-        <Button onClick={() => setFormOpen(true)}>
-          <Plus className="h-4 w-4 mr-2" /> Add Budget
-        </Button>
+        <div className="flex items-center gap-4">
+          <Select value={period} onValueChange={value => setPeriod(value as FilterPeriod)}>
+            <SelectTrigger className="w-[140px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Time</SelectItem>
+              <SelectItem value="3">3 Months</SelectItem>
+              <SelectItem value="6">6 Months</SelectItem>
+              <SelectItem value="12">12 Months</SelectItem>
+              <SelectItem value="24">24 Months</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button onClick={() => setFormOpen(true)}>
+            <Plus className="h-4 w-4 mr-2" /> Add Budget
+          </Button>
+        </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">

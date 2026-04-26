@@ -9,6 +9,7 @@ import {
   Settings,
 } from "lucide-react";
 import { useLocation, Link } from "react-router-dom";
+import { motion } from "framer-motion";
 import {
   Sidebar,
   SidebarContent,
@@ -20,6 +21,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarFooter,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import brandMark from "@/assets/doughray-mark.png";
 import { BRAND } from "@/lib/brand";
@@ -37,11 +39,12 @@ const navItems = [
 
 export function AppSidebar() {
   const location = useLocation();
+  const { setOpenMobile } = useSidebar();
 
   return (
     <Sidebar>
       <SidebarHeader className="border-b border-sidebar-border/60 px-5 py-4">
-        <Link to="/" className="flex items-center gap-3">
+        <Link to="/" className="flex items-center gap-3" onClick={() => setOpenMobile(false)}>
           <img
             src={brandMark}
             alt={`${BRAND.name} mark`}
@@ -64,9 +67,15 @@ export function AppSidebar() {
                     asChild
                     isActive={location.pathname === item.path}
                   >
-                    <Link to={item.path}>
-                      <item.icon className="h-4 w-4" />
-                      <span>{item.title}</span>
+                    <Link to={item.path} onClick={() => setOpenMobile(false)} className="w-full">
+                      <motion.div 
+                        whileHover={{ x: 5 }}
+                        whileTap={{ scale: 0.95 }}
+                        className="flex items-center gap-2"
+                      >
+                        <item.icon className="h-4 w-4" />
+                        <span>{item.title}</span>
+                      </motion.div>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>

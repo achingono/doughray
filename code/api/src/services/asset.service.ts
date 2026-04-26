@@ -1,5 +1,7 @@
 import { prisma } from '../lib/prisma';
 import { decimalToNumber } from '../lib/types';
+import { isLiabilityAccountType, LIABILITY_ACCOUNT_TYPES } from '../lib/account-types';
+import { AppError } from '../middleware/error-handler';
 
 export interface AssetWithValuations {
   id: string;
@@ -10,6 +12,7 @@ export interface AssetWithValuations {
   purchaseDate: Date | null;
   address: string | null;
   metadata: any;
+  accountId: string | null;
   lastValuationDate: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -19,6 +22,20 @@ export interface AssetWithValuations {
     source: string;
     valuedAt: Date;
   }[];
+}
+
+function assertValidLinkedLiabilityAccount(account: { type: string } | null, accountId: string) {
+  if (!account) {
+    throw new AppError(400, `Account not found: ${accountId}`, 'VALIDATION_ERROR');
+  }
+
+  if (!isLiabilityAccountType(account.type)) {
+    throw new AppError(
+      400,
+      `Account must be a liability account (${LIABILITY_ACCOUNT_TYPES.join(', ')}), got ${account.type}`,
+      'VALIDATION_ERROR',
+    );
+  }
 }
 
 function mapAsset(a: any, includeValuations = false): AssetWithValuations {
@@ -31,6 +48,7 @@ function mapAsset(a: any, includeValuations = false): AssetWithValuations {
     purchaseDate: a.purchaseDate,
     address: a.address,
     metadata: a.metadata,
+    accountId: a.accountId,
     lastValuationDate: a.lastValuationDate,
     createdAt: a.createdAt,
     updatedAt: a.updatedAt,
@@ -98,7 +116,17 @@ export async function createAsset(data: {
   purchaseDate?: Date;
   address?: string;
   metadata?: any;
+  accountId?: string;
 }) {
+  // Validate accountId if provided
+  if (data.accountId) {
+    const account = await prisma.account.findUnique({
+      where: { id: data.accountId },
+      select: { type: true },
+    });
+    assertValidLinkedLiabilityAccount(account, data.accountId);
+  }
+
   const asset = await prisma.asset.create({
     data: {
       name: data.name,
@@ -108,6 +136,7 @@ export async function createAsset(data: {
       purchaseDate: data.purchaseDate,
       address: data.address,
       metadata: data.metadata,
+      accountId: data.accountId ?? null,
       lastValuationDate: new Date(),
       valuations: {
         create: {
@@ -132,7 +161,19 @@ export async function updateAsset(id: string, data: {
   purchaseDate?: Date;
   address?: string;
   metadata?: any;
+  accountId?: string | null;
 }) {
+  // Validate accountId if provided
+  if (data.accountId !== undefined) {
+    if (data.accountId !== null) {
+      const account = await prisma.account.findUnique({
+        where: { id: data.accountId },
+        select: { type: true },
+      });
+      assertValidLinkedLiabilityAccount(account, data.accountId);
+    }
+  }
+
   const asset = await prisma.asset.update({
     where: { id },
     data,

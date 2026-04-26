@@ -1,7 +1,9 @@
 import { prisma } from '../lib/prisma';
 import { decimalToNumber, AccountWithStats } from '../lib/types';
+import { isLiabilityAccountType, LiabilityAccountType, LIABILITY_ACCOUNT_TYPES } from '../lib/account-types';
 import { AppError } from '../middleware/error-handler';
 import { InterestType, LoanDetailSource, LoanType, PaymentFrequency } from '@prisma/client';
+import { getTransactionsForAccount as getLoanTrackedTransactions } from './loan-transaction.service';
 
 interface UpdateAccountBalanceInput {
   balance: number;
@@ -72,12 +74,18 @@ export interface UpsertCreditCardDetailsInput {
   notes?: string | null;
 }
 
-function isImportedAccount(externalId: string): boolean {
-  return externalId.startsWith('manual-import:') || externalId.startsWith('excel-import:');
+export interface CreateAccountInput {
+  name: string;
+  type: LiabilityAccountType;
+  institution?: string | null;
+  currency?: string;
+  balance: number;
+  balanceDate?: Date;
+  loanDetails?: UpsertLoanDetailsInput;
 }
 
-function isLiabilityType(type: string): boolean {
-  return type === 'CREDIT_CARD' || type === 'LOAN' || type === 'MORTGAGE';
+function isImportedAccount(externalId: string): boolean {
+  return externalId.startsWith('manual-import:') || externalId.startsWith('excel-import:');
 }
 
 function toNonNegative(value: number | null | undefined, field: string) {
@@ -177,6 +185,62 @@ export async function getAllAccounts(): Promise<AccountWithStats[]> {
   }));
 }
 
+export async function createAccount(input: CreateAccountInput) {
+  // Validate liability type
+  if (!isLiabilityAccountType(input.type)) {
+    throw new AppError(
+      400,
+      `Manual account creation only supports liability types: ${LIABILITY_ACCOUNT_TYPES.join(', ')}`,
+      'VALIDATION_ERROR',
+    );
+  }
+
+  // Create account and optionally loan details in a transaction
+  const account = await prisma.$transaction(async (tx) => {
+    const newAccount = await tx.account.create({
+      data: {
+        externalId: `manual:${Date.now()}:${Math.random().toString(36).slice(2, 11)}`,
+        name: input.name,
+        type: input.type,
+        institution: input.institution ?? null,
+        currency: input.currency ?? 'USD',
+        balance: input.balance,
+        balanceDate: input.balanceDate ?? new Date(),
+      },
+    });
+
+    // Optionally create loan details if provided
+    if (input.loanDetails) {
+      await tx.accountLoanDetails.create({
+        data: {
+          accountId: newAccount.id,
+          loanType: input.loanDetails.loanType,
+          originalPrincipal: input.loanDetails.originalPrincipal ?? null,
+          currentPrincipal: input.loanDetails.currentPrincipal ?? null,
+          interestType: input.loanDetails.interestType ?? null,
+          interestRateAnnual: input.loanDetails.interestRateAnnual ?? null,
+          paymentAmount: input.loanDetails.paymentAmount ?? null,
+          paymentFrequency: input.loanDetails.paymentFrequency ?? null,
+          termStartDate: input.loanDetails.termStartDate ?? null,
+          termMaturityDate: input.loanDetails.termMaturityDate ?? null,
+          originalAmortizationMonths: input.loanDetails.originalAmortizationMonths ?? null,
+          remainingAmortizationMonths: input.loanDetails.remainingAmortizationMonths ?? null,
+          renewalDate: input.loanDetails.renewalDate ?? null,
+          notes: input.loanDetails.notes ?? null,
+          lastVerifiedAt: input.loanDetails.lastVerifiedAt ?? null,
+          source: input.loanDetails.source ?? 'USER_ENTERED',
+          updatedBy: 'system',
+        },
+      });
+    }
+
+    return newAccount;
+  });
+
+  // Return full account detail
+  return getAccountById(account.id);
+}
+
 export async function getAccountById(id: string) {
   const account = await prisma.account.findUnique({
     where: { id },
@@ -194,6 +258,9 @@ export async function getAccountById(id: string) {
   });
 
   if (!account) return null;
+
+  const isLoanAccount = account.type === 'LOAN' || account.type === 'MORTGAGE';
+  const trackedTransactions = isLoanAccount ? await getLoanTrackedTransactions(id) : [];
 
   return {
     id: account.id,
@@ -242,6 +309,15 @@ export async function getAccountById(id: string) {
       description: t.description,
       payee: t.payee,
       category: t.category ? { id: t.category.id, name: t.category.name, icon: t.category.icon, color: t.category.color } : null,
+    })),
+    trackedTransactions: trackedTransactions.map((t) => ({
+      id: t.id,
+      posted: t.posted,
+      amount: t.amount,
+      description: t.description,
+      sourceTransactionId: t.sourceTransactionId,
+      sourceAccount: t.sourceTransaction.account.name,
+      category: t.sourceTransaction.category,
     })),
   };
 }
@@ -294,7 +370,7 @@ export async function upsertAccountLoanDetails(id: string, input: UpsertLoanDeta
   });
 
   if (!existing) return null;
-  if (!isLiabilityType(existing.type)) {
+  if (!isLiabilityAccountType(existing.type)) {
     throw new AppError(400, 'Loan details can only be updated for liability accounts', 'VALIDATION_ERROR');
   }
 

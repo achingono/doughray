@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../lib/api';
-import type { HoldingsSummary, TrendDataPoint } from '../types';
+import type { HoldingsSummary, TrendDataPoint, FilterPeriod } from '../types';
 
-export function useHoldings(period: string = 'all') {
+export function useHoldings(period: FilterPeriod = 'all') {
   const [holdings, setHoldings] = useState<HoldingsSummary | null>(null);
   const [history, setHistory] = useState<TrendDataPoint[]>([]);
   const [loading, setLoading] = useState(true);

@@ -1,12 +1,12 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type { Account } from "@/types";
+import type { Account, FilterPeriod } from "@/types";
 
 interface DateRangeFilterProps {
   accounts: Account[];
   selectedAccountId: string;
   onAccountChange: (accountId: string) => void;
-  period: string;
-  onPeriodChange: (period: string) => void;
+  period: FilterPeriod;
+  onPeriodChange: (period: FilterPeriod) => void;
 }
 
 export function DateRangeFilter({

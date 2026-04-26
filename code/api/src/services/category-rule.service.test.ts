@@ -7,6 +7,7 @@ const { prismaMock } = vi.hoisted(() => ({
       count: vi.fn(),
       findUnique: vi.fn(),
       delete: vi.fn(),
+      create: vi.fn(),
     },
     transaction: {
       findMany: vi.fn(),
@@ -20,7 +21,7 @@ const { prismaMock } = vi.hoisted(() => ({
 vi.mock('../lib/prisma', () => ({ prisma: prismaMock }));
 
 import { AppError } from '../middleware/error-handler';
-import { applyCategoryRulesToTransactions, deleteCategoryRule, listCategoryRules } from './category-rule.service';
+import { applyCategoryRulesToTransactions, createCategoryRule, deleteCategoryRule, listCategoryRules } from './category-rule.service';
 
 describe('category-rule.service', () => {
   beforeEach(() => {
@@ -55,6 +56,27 @@ describe('category-rule.service', () => {
   it('throws when deleting a missing rule', async () => {
     prismaMock.categoryRule.findUnique.mockResolvedValue(null);
     await expect(deleteCategoryRule('missing')).rejects.toBeInstanceOf(AppError);
+  });
+
+  it('creates a category rule', async () => {
+    prismaMock.categoryRule.create.mockResolvedValue({
+      id: 'new-rule',
+      normalizedPayee: 'test',
+      categoryId: 'cat-1',
+      accountId: null,
+    });
+
+    const result = await createCategoryRule({
+      normalizedPayee: 'test',
+      categoryId: 'cat-1',
+      sourceTransactionId: 'tx-1',
+    });
+
+    expect(prismaMock.categoryRule.create).toHaveBeenCalledWith({
+      data: { normalizedPayee: 'test', categoryId: 'cat-1', sourceTransactionId: 'tx-1' },
+      select: { id: true, normalizedPayee: true, categoryId: true, accountId: true },
+    });
+    expect(result.id).toBe('new-rule');
   });
 
   it('applies matching rules to uncategorized transactions', async () => {
