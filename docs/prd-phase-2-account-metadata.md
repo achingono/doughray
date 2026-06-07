@@ -102,7 +102,7 @@ Tracks RRSP, TFSA, RESP, RIF, RDSP metadata. Fields:
 **Constraints:**
 - `registrationType` + `accountId` unique (one registered detail per account)
 - `contributedThisYear` + `unusedCarryforward` ≤ `totalContributionRoom` (validation rule)
-- RESP: `beneficiaryName` and `beneficiaryDateOfBirth` are both required
+- RESP: `beneficiaryName` and `beneficiaryDateOfBirth` both required or both null
 - All currency fields >= 0
 - `lastVerifiedAt` ≤ now()
 

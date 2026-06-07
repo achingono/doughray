@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api } from '../lib/api';
-import type { Account } from '../types';
+import type { Account, CreateLiabilityAccountInput } from '../types';
 
 export function useAccounts() {
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -14,5 +14,9 @@ export function useAccounts() {
       .finally(() => setLoading(false));
   }, []);
 
-  return { accounts, loading, error };
+  const createAccount = async (data: CreateLiabilityAccountInput) => {
+    return api.createAccount(data);
+  };
+
+  return { accounts, loading, error, createAccount };
 }

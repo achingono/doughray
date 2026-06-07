@@ -19,9 +19,10 @@ const updateBudgetSchema = z.object({
   endDate: z.string().nullable().optional().transform((v) => v ? new Date(v) : undefined),
 });
 
-router.get('/', async (_req, res, next) => {
+router.get('/', async (req, res, next) => {
   try {
-    const budgets = await getBudgets();
+    const period = req.query.period as string | undefined;
+    const budgets = await getBudgets(period);
     res.json({ data: budgets });
   } catch (err) {
     next(err);

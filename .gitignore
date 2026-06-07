@@ -34,3 +34,9 @@ pnpm-debug.log*
 # Optional local Prisma/SQLite artifacts
 code/prisma/*.db
 code/prisma/*.db-*
+
+# Github skills
+.github/skills/
+
+# Local backups
+backups/
