@@ -11,18 +11,10 @@ const WEEKS_PER_MONTH = 52.1429 / 12;
 
 const EXCLUDED_BUDGET_CATEGORY_NAMES = new Set(['Transfers']);
 
-async function getDescendantCategoryIds(rootCategoryId: string): Promise<string[]> {
-  const categories = await prisma.category.findMany({
-    select: { id: true, parentId: true, name: true },
-  });
-
-  const childrenByParent = new Map<string | null, Array<{ id: string; name: string }>>();
-  for (const category of categories) {
-    const siblings = childrenByParent.get(category.parentId) ?? [];
-    siblings.push({ id: category.id, name: category.name });
-    childrenByParent.set(category.parentId, siblings);
-  }
-
+function getDescendantCategoryIdsFromMap(
+  rootCategoryId: string,
+  childrenByParent: Map<string | null, Array<{ id: string; name: string }>>,
+): string[] {
   const ids = new Set<string>([rootCategoryId]);
   const stack = [rootCategoryId];
 
@@ -64,6 +56,21 @@ export async function getBudgets(periodParam?: string): Promise<BudgetWithProgre
     orderBy: { category: { name: 'asc' } },
   });
 
+  // Build the category tree once per request.
+  // This avoids running `findMany()` for all categories inside the per-budget loop.
+  const categories = await prisma.category.findMany({
+    select: { id: true, parentId: true, name: true },
+  });
+
+  const childrenByParent = new Map<string | null, Array<{ id: string; name: string }>>();
+  for (const category of categories) {
+    const siblings = childrenByParent.get(category.parentId) ?? [];
+    siblings.push({ id: category.id, name: category.name });
+    childrenByParent.set(category.parentId, siblings);
+  }
+
+  const descendantIdsCache = new Map<string, string[]>();
+
   const now = new Date();
   let startDate: Date | undefined;
   let endDate: Date | undefined;
@@ -101,7 +108,11 @@ export async function getBudgets(periodParam?: string): Promise<BudgetWithProgre
 
   for (const b of budgets) {
     // Use descendant categories for rollup
-    const categoryIds = await getDescendantCategoryIds(b.categoryId);
+    let categoryIds = descendantIdsCache.get(b.categoryId);
+    if (!categoryIds) {
+      categoryIds = getDescendantCategoryIdsFromMap(b.categoryId, childrenByParent);
+      descendantIdsCache.set(b.categoryId, categoryIds);
+    }
 
     // Use the calculated startDate and endDate for the query
     const whereClause: Prisma.TransactionWhereInput = {
