@@ -112,7 +112,7 @@ jobs:
           docker run -d --name zap-spa \
             --network host \
             -v "${{ github.workspace }}/zap-reports:/zap/wrk:rw" \
-            -v "${{ github.workspace }}/zap:/zap/rules:ro" \
+            -v "${{ github.workspace }}/scripts/zap:/zap/rules:ro" \
             -u root \
             ghcr.io/zaproxy/zaproxy:2.16.0 \
             zap-baseline.py \
@@ -127,7 +127,7 @@ jobs:
           docker run -d --name zap-api \
             --network host \
             -v "${{ github.workspace }}/zap-reports:/zap/wrk:rw" \
-            -v "${{ github.workspace }}/zap:/zap/rules:ro" \
+            -v "${{ github.workspace }}/scripts/zap:/zap/rules:ro" \
             -u root \
             ghcr.io/zaproxy/zaproxy:2.16.0 \
             zap-baseline.py \
