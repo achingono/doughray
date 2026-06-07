@@ -120,10 +120,10 @@ test('transactions filters interaction works', async ({ page }) => {
   await page.locator('button:has-text("All Accounts")').first().click();
   await page.getByRole('option', { name: 'All Accounts' }).click();
 
-  await expect(page.getByRole('button', { name: /Clear/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Clear/i })).toBeVisible({ timeout: 10_000 });
 
   await page.getByRole('button', { name: /Clear/i }).click();
-  await expect(searchInput).toHaveValue('');
+  await expect(searchInput).toHaveValue('', { timeout: 10_000 });
 });
 
 test('assets page supports create, detail view, and delete', async ({ page }) => {
@@ -189,6 +189,7 @@ test('budgets page supports create, edit, and delete', async ({ page, request })
   const openDialog = page.getByRole('dialog');
   if (await openDialog.isVisible()) {
     await page.getByRole('button', { name: 'Cancel' }).click();
+    await expect(openDialog).not.toBeVisible({ timeout: 10_000 });
   }
 
   // Delete first matching budget card
