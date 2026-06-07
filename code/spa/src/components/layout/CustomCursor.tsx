@@ -80,16 +80,6 @@ export function CustomCursor() {
       };
     }
   }, [isFinePointer]);
-      document.head.appendChild(style);
-      return () => {
-        document.body.style.cursor = 'auto';
-        const customCursorStyle = document.getElementById('custom-cursor-style');
-        if (customCursorStyle) {
-          customCursorStyle.remove();
-        }
-      };
-    }
-  }, [isFinePointer]);
 
   if (!isFinePointer) return null;
 
