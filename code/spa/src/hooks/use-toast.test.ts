@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest"
+import { act, renderHook } from "@testing-library/react"
 import { reducer, useToast, toast } from "./use-toast"
 
 describe("use-toast", () => {
@@ -108,28 +109,33 @@ describe("use-toast", () => {
 
   describe("useToast hook", () => {
     it("should return initial empty state", () => {
-      const { toasts } = useToast()
-      expect(toasts).toBeDefined()
+      const { result } = renderHook(() => useToast())
+      expect(result.current.toasts).toBeDefined()
     })
 
     it("should provide toast function", () => {
-      const { toast: toastFn } = useToast()
+      const { result } = renderHook(() => useToast())
+      const toastFn = result.current.toast
       expect(typeof toastFn).toBe("function")
     })
 
     it("should provide dismiss function", () => {
-      const { dismiss } = useToast()
-      expect(typeof dismiss).toBe("function")
+      const { result } = renderHook(() => useToast())
+      expect(typeof result.current.dismiss).toBe("function")
     })
 
     it("should handle dismiss without toastId", () => {
-      const { dismiss } = useToast()
-      expect(() => dismiss()).not.toThrow()
+      const { result } = renderHook(() => useToast())
+      expect(() => {
+        act(() => result.current.dismiss())
+      }).not.toThrow()
     })
 
     it("should handle dismiss with toastId", () => {
-      const { dismiss } = useToast()
-      expect(() => dismiss("test-id")).not.toThrow()
+      const { result } = renderHook(() => useToast())
+      expect(() => {
+        act(() => result.current.dismiss("test-id"))
+      }).not.toThrow()
     })
   })
 })
