@@ -31,7 +31,7 @@ router.get('/', validate(querySchema, 'query'), async (req, res, next) => {
 router.post('/', validate(createCategoryRuleSchema), async (req, res, next) => {
   try {
     const data = req.body as z.infer<typeof createCategoryRuleSchema>;
-    const rule = await createCategoryRule(data as CreateCategoryRuleInput);
+    const rule = await createCategoryRule({ ...data, accountId: data.accountId ?? undefined });
     res.status(201).json({ data: rule });
   } catch (err) {
     next(err);
