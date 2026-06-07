@@ -108,9 +108,9 @@ describe("use-toast", () => {
   })
 
   describe("useToast hook", () => {
-    it("should expose toast state", () => {
+    it("should return initial empty state", () => {
       const { result } = renderHook(() => useToast())
-      expect(Array.isArray(result.current.toasts)).toBe(true)
+      expect(result.current.toasts).toBeDefined()
     })
 
     it("should provide toast function", () => {

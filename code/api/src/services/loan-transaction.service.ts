@@ -259,6 +259,9 @@ export async function runTrackingForAccount(accountId: string): Promise<number> 
   const candidateTransactions = await db.transaction.findMany({
     where: {
       accountId: { in: sourceAccountIds },
+      // Loan payments should typically be expenses (negative amounts).
+      // Filtering reduces incorrect associations with refunds/income.
+      amount: { lt: 0 },
       OR: whereClauses,
     },
     orderBy: { posted: 'desc' },

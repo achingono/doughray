@@ -3,6 +3,8 @@ import Lenis from "lenis";
 
 export function SmoothScroll({ children }: { children: React.ReactNode }) {
   useEffect(() => {
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    if (prefersReducedMotion.matches) return;
     // Small offset used by this exponential ease-out variant so the curve
     // reliably reaches 1 when clamped at the end of the animation.
     const EXPONENTIAL_EASE_OUT_OFFSET = 1.001;

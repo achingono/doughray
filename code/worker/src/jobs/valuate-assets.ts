@@ -1,5 +1,10 @@
 import prisma from '../lib/prisma';
-import openai, { getMissingAzureOpenAIConfig } from '../lib/openai';
+import openai, {
+  getMissingOpenAIConfig,
+  getOpenAIModel,
+  getOpenAITemperature,
+  isOpenAIModelNotFoundError,
+} from '../lib/openai';
 import { buildValuationPrompt } from '../prompts/valuate';
 
 function decimalToNumber(val: any): number {
@@ -93,7 +98,7 @@ async function tryExternalApi(asset: any): Promise<number | null> {
 }
 
 async function tryAiValuation(asset: any): Promise<number | null> {
-  const missingConfig = getMissingAzureOpenAIConfig();
+  const missingConfig = getMissingOpenAIConfig();
   if (missingConfig.length > 0) {
     return null;
   }
@@ -109,9 +114,9 @@ async function tryAiValuation(asset: any): Promise<number | null> {
     });
 
     const response = await openai.chat.completions.create({
-      model: process.env.AZURE_OPENAI_DEPLOYMENT!,
+      model: getOpenAIModel(),
       messages: [{ role: 'user', content: prompt }],
-      temperature: process.env.AZURE_OPENAI_TEMPERATURE ? Number(process.env.AZURE_OPENAI_TEMPERATURE) : 1,
+      temperature: getOpenAITemperature(),
       response_format: { type: 'json_object' },
     });
 
@@ -121,8 +126,8 @@ async function tryAiValuation(asset: any): Promise<number | null> {
     const result = JSON.parse(content);
     return typeof result.estimatedValue === 'number' ? result.estimatedValue : null;
   } catch (err) {
-    if ((err as { code?: string }).code === 'DeploymentNotFound') {
-      console.error('[Valuate] Azure deployment not found');
+    if (isOpenAIModelNotFoundError(err)) {
+      console.error(`[Valuate] OpenAI model not found: "${getOpenAIModel()}"`);
     }
     console.warn(`[Valuate] AI valuation failed for "${asset.name}":`, err);
     return null;

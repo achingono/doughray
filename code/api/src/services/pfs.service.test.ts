@@ -33,14 +33,16 @@ const { openAiMock } = vi.hoisted(() => ({
   },
 }));
 
-const { azureConfigMock } = vi.hoisted(() => ({
-  azureConfigMock: {
-    getMissingAzureOpenAIConfig: vi.fn(),
+const { openAiConfigMock } = vi.hoisted(() => ({
+  openAiConfigMock: {
+    getMissingOpenAIConfig: vi.fn(),
+    getOpenAIModel: vi.fn().mockReturnValue('gpt-4o-mini'),
+    getOpenAITemperature: vi.fn().mockReturnValue(1),
   },
 }));
 
 vi.mock('../lib/prisma', () => ({ prisma: prismaMock }));
-vi.mock('../lib/openai', () => ({ default: openAiMock, ...azureConfigMock }));
+vi.mock('../lib/openai', () => ({ default: openAiMock, ...openAiConfigMock }));
 
 import {
   buildBalanceSheet,
@@ -225,14 +227,14 @@ describe('pfs.service', () => {
   });
 
   describe('generatePFS', () => {
-    it('throws when Azure config is missing', async () => {
-      azureConfigMock.getMissingAzureOpenAIConfig.mockReturnValue(['AZURE_OPENAI_ENDPOINT']);
+    it('throws when OpenAI config is missing', async () => {
+      openAiConfigMock.getMissingOpenAIConfig.mockReturnValue(['OPENAI_API_KEY']);
 
-      await expect(generatePFS()).rejects.toThrow('Missing Azure OpenAI config');
+      await expect(generatePFS()).rejects.toThrow('Missing OpenAI config');
     });
 
     it('generates a full PFS report', async () => {
-      azureConfigMock.getMissingAzureOpenAIConfig.mockReturnValue([]);
+      openAiConfigMock.getMissingOpenAIConfig.mockReturnValue([]);
       prismaMock.report.findFirst.mockResolvedValue(null);
 
       prismaMock.account.findMany.mockResolvedValue([
@@ -290,7 +292,7 @@ describe('pfs.service', () => {
     });
 
     it('returns existing report for current period unless overwrite is requested', async () => {
-      azureConfigMock.getMissingAzureOpenAIConfig.mockReturnValue([]);
+      openAiConfigMock.getMissingOpenAIConfig.mockReturnValue([]);
       prismaMock.report.findFirst.mockResolvedValue({ id: 'existing', type: 'PERSONAL_FINANCIAL_STATEMENT' });
 
       const result = await generatePFS();

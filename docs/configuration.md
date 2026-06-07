@@ -82,32 +82,42 @@ SIMPLEFIN_ACCESS_URL=https://user:pass@bridge.simplefin.org/simplefin
 
 ---
 
-### Azure OpenAI Configuration
+### OpenAI-Compatible LLM Configuration
 
 | Variable | Required | Default | Used By | Description |
 |----------|----------|---------|---------|-------------|
-| `AZURE_OPENAI_ENDPOINT` | Yes* | *(empty)* | worker | Azure OpenAI resource endpoint URL |
-| `AZURE_OPENAI_API_KEY` | Yes* | *(empty)* | worker | API key for Azure OpenAI |
-| `AZURE_OPENAI_DEPLOYMENT` | Yes* | *(empty)* | worker | Azure deployment name (must match your Azure AI Studio deployment exactly) |
-| `AZURE_OPENAI_API_VERSION` | No | `2024-06-01` | worker | Azure OpenAI API version string |
+| `OPENAI_BASE_URL` | No | *(empty)* | api, worker | Custom OpenAI-compatible base URL. Leave empty to use the default OpenAI API. |
+| `OPENAI_API_KEY` | Yes* | *(empty)* | api, worker | API key for the configured OpenAI-compatible provider |
+| `OPENAI_MODEL` | Yes* | *(empty)* | api, worker | Model or deployment name used for AI features |
+| `AZURE_OPENAI_ENDPOINT` | No | *(empty)* | api, worker | Azure OpenAI resource endpoint. When set, the app uses Azure request shaping. |
+| `AZURE_OPENAI_API_VERSION` | Yes** | *(empty)* | api, worker | Azure OpenAI API version, required when `AZURE_OPENAI_ENDPOINT` is set |
+| `OPENAI_TEMPERATURE` | No | `1` | api, worker | Default temperature for AI-powered requests |
 
-\* Required for AI-powered transaction categorization and report generation. The worker continues running without these — transaction import still works, but categorization and report generation will not.
+\* Required for AI-powered transaction categorization and report generation. The app still runs without these, but AI categorization and AI-generated reports will not.
 
-#### How to Set Up Azure OpenAI
+\** Required only when using Azure OpenAI.
 
-1. Create an Azure account at [https://portal.azure.com](https://portal.azure.com)
-2. Create an **Azure OpenAI** resource in your subscription
-3. Deploy a model (recommended: `gpt-4o` or `gpt-4o-mini` for cost savings)
-4. From the resource's **Keys and Endpoint** page, copy:
-   - **Endpoint URL** → `AZURE_OPENAI_ENDPOINT`
-   - **Key 1** or **Key 2** → `AZURE_OPENAI_API_KEY`
-   - **Deployment name** → `AZURE_OPENAI_DEPLOYMENT`
-5. Set the values in your `.env` file
+#### How to Set Up an OpenAI-Compatible Provider
 
-**Endpoint format:**
+1. Choose an OpenAI-compatible provider such as OpenAI or Azure OpenAI.
+2. Create or deploy the model you want to use.
+3. Collect:
+   - **API key** → `OPENAI_API_KEY`
+   - **Model or deployment name** → `OPENAI_MODEL`
+   - **Base URL** → `OPENAI_BASE_URL` when your provider requires a custom endpoint
+   - **Azure endpoint** → `AZURE_OPENAI_ENDPOINT` when using Azure OpenAI
+   - **Azure API version** → `AZURE_OPENAI_API_VERSION` when using Azure OpenAI
+4. Set the values in your `.env` file
+
+**Example configuration:**
 
 ```env
-AZURE_OPENAI_ENDPOINT=https://<your-resource-name>.openai.azure.com/
+OPENAI_BASE_URL=
+OPENAI_API_KEY=your-api-key
+OPENAI_MODEL=gpt-4o-mini
+AZURE_OPENAI_ENDPOINT=
+AZURE_OPENAI_API_VERSION=
+OPENAI_TEMPERATURE=1
 ```
 
 ---
@@ -265,11 +275,11 @@ DATABASE_URL=postgresql://finance:your-strong-password-here-32-chars-minimum@pos
 # SimpleFin Bridge
 SIMPLEFIN_ACCESS_URL=https://user:pass@bridge.simplefin.org/simplefin
 
-# Azure OpenAI
-AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
-AZURE_OPENAI_API_KEY=your-azure-openai-api-key
-AZURE_OPENAI_DEPLOYMENT=your-deployment-name
-AZURE_OPENAI_API_VERSION=2024-06-01
+# OpenAI-compatible LLM provider
+OPENAI_BASE_URL=
+OPENAI_API_KEY=your-openai-compatible-api-key
+OPENAI_MODEL=gpt-4o-mini
+OPENAI_TEMPERATURE=1
 
 # App Settings
 NODE_ENV=production
@@ -287,7 +297,7 @@ SPA_PORT=80
 | **Strong database password** | Use 32+ characters with mixed case, numbers, and symbols for `POSTGRES_PASSWORD` |
 | **Restrict Docker ports** | Bind to `127.0.0.1` if behind a reverse proxy (e.g., `127.0.0.1:3000:3000`) |
 | **Use HTTPS** | Terminate TLS at a reverse proxy (Nginx, Caddy, Traefik) in front of the SPA |
-| **Rotate API keys** | Rotate `AZURE_OPENAI_API_KEY` periodically via the Azure portal |
+| **Rotate API keys** | Rotate `OPENAI_API_KEY` periodically via your LLM provider |
 | **Protect SimpleFin URL** | Keep `SIMPLEFIN_ACCESS_URL` confidential — it grants read access to your financial data |
 | **Docker secrets** | Use Docker secrets or a vault (e.g., HashiCorp Vault) for sensitive values in production |
 | **File permissions** | Ensure `.env` is readable only by the deploying user (`chmod 600 .env`) |

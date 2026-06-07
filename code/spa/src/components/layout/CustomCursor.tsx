@@ -67,8 +67,15 @@ export function CustomCursor() {
       const style = document.createElement('style');
       style.id = 'custom-cursor-style';
       style.innerHTML = `
-        body, body * { cursor: none !important; }
-        input, textarea, select, option, [contenteditable="true"] { cursor: auto !important; }
+        body * { cursor: none !important; }
+        /* Keep text cursors for editable controls for accessibility */
+        body input,
+        body textarea,
+        body select,
+        body [contenteditable="true"],
+        body [role="textbox"] {
+          cursor: text !important;
+        }
       `;
       document.head.appendChild(style);
       return () => {

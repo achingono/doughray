@@ -35,9 +35,11 @@ const { openAiMock } = vi.hoisted(() => ({
   },
 }));
 
-const { azureConfigMock } = vi.hoisted(() => ({
-  azureConfigMock: {
-    getMissingAzureOpenAIConfig: vi.fn(),
+const { openAiConfigMock } = vi.hoisted(() => ({
+  openAiConfigMock: {
+    getMissingOpenAIConfig: vi.fn(),
+    getOpenAIModel: vi.fn().mockReturnValue('gpt-4o-mini'),
+    getOpenAITemperature: vi.fn().mockReturnValue(1),
   },
 }));
 
@@ -48,7 +50,7 @@ const { reportPromptMock } = vi.hoisted(() => ({
 }));
 
 vi.mock('../lib/prisma', () => ({ default: prismaMock }));
-vi.mock('../lib/openai', () => ({ default: openAiMock, ...azureConfigMock }));
+vi.mock('../lib/openai', () => ({ default: openAiMock, ...openAiConfigMock }));
 vi.mock('../prompts/report', () => reportPromptMock);
 
 import { generateMonthlyReport, takeNetWorthSnapshot } from './generate-reports';
@@ -58,8 +60,8 @@ describe('worker generate-reports job', () => {
     vi.clearAllMocks();
   });
 
-  it('skips monthly report generation when Azure config is missing', async () => {
-    azureConfigMock.getMissingAzureOpenAIConfig.mockReturnValue(['AZURE_OPENAI_API_KEY']);
+  it('skips monthly report generation when OpenAI config is missing', async () => {
+    openAiConfigMock.getMissingOpenAIConfig.mockReturnValue(['OPENAI_API_KEY']);
 
     await generateMonthlyReport();
 
@@ -67,7 +69,7 @@ describe('worker generate-reports job', () => {
   });
 
   it('generates a monthly report when config and data are available', async () => {
-    azureConfigMock.getMissingAzureOpenAIConfig.mockReturnValue([]);
+    openAiConfigMock.getMissingOpenAIConfig.mockReturnValue([]);
     prismaMock.report.findFirst.mockResolvedValue(null);
     prismaMock.transaction.findMany.mockResolvedValue([
       { amount: new Decimal('1000'), category: null },

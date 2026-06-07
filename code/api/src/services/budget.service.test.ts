@@ -14,6 +14,7 @@ const { prismaMock } = vi.hoisted(() => ({
     },
     transaction: {
       aggregate: vi.fn(),
+      findFirst: vi.fn(),
     },
   },
 }));
@@ -74,6 +75,86 @@ describe('budget.service', () => {
         percentUsed: 25.1,
       }),
     ]);
+  });
+
+  it("filters transactions by period range when periodParam is numeric months", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-07T00:00:00.000Z'));
+
+    prismaMock.budget.findMany.mockResolvedValue([
+      {
+        id: 'b1',
+        categoryId: 'c1',
+        category: { name: 'Food', icon: 'Utensils', color: 'blue' },
+        amount: new Decimal('500'),
+        period: 'MONTHLY',
+        startDate: new Date('2026-01-01T00:00:00.000Z'),
+        endDate: null,
+      },
+    ]);
+    prismaMock.category.findMany.mockResolvedValue([
+      { id: 'c1', parentId: null, name: 'Food' },
+      { id: 'c1a', parentId: 'c1', name: 'Groceries' },
+    ]);
+    prismaMock.transaction.aggregate.mockResolvedValue({ _sum: { amount: new Decimal('-10') } });
+
+    await getBudgets('6');
+
+    const now = new Date('2026-06-07T00:00:00.000Z');
+    const expectedGte = new Date(now.getFullYear(), now.getMonth() - 6 + 1, 1);
+    const expectedLte = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+
+    expect(prismaMock.transaction.aggregate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          posted: {
+            gte: expectedGte,
+            lte: expectedLte,
+          },
+        }),
+      }),
+    );
+
+    vi.useRealTimers();
+  });
+
+  it("filters transactions by period range when periodParam is 'all'", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-07T00:00:00.000Z'));
+
+    prismaMock.budget.findMany.mockResolvedValue([
+      {
+        id: 'b1',
+        categoryId: 'c1',
+        category: { name: 'Food', icon: 'Utensils', color: 'blue' },
+        amount: new Decimal('500'),
+        period: 'MONTHLY',
+        startDate: new Date('2026-01-01T00:00:00.000Z'),
+        endDate: null,
+      },
+    ]);
+    prismaMock.category.findMany.mockResolvedValue([
+      { id: 'c1', parentId: null, name: 'Food' },
+    ]);
+    prismaMock.transaction.findFirst.mockResolvedValue({ posted: new Date('2025-11-01T00:00:00.000Z') });
+    prismaMock.transaction.aggregate.mockResolvedValue({ _sum: { amount: new Decimal('-10') } });
+
+    await getBudgets('all');
+
+    const now = new Date('2026-06-07T00:00:00.000Z');
+    const expectedLte = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+
+    expect(prismaMock.transaction.aggregate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          posted: expect.objectContaining({
+            lte: expectedLte,
+          }),
+        }),
+      }),
+    );
+
+    vi.useRealTimers();
   });
 
   it('delegates create/update/delete to prisma', async () => {

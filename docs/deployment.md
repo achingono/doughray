@@ -7,7 +7,7 @@ Doughray consists of four services orchestrated via Docker Compose:
 - **postgres** — PostgreSQL 16 database
 - **api** — Node.js/Express REST API (TypeScript, Prisma ORM)
 - **spa** — React single-page application served by Nginx
-- **worker** — Background worker for SimpleFin account syncing and Azure OpenAI processing
+- **worker** — Background worker for SimpleFin account syncing and OpenAI-compatible LLM processing
 
 ---
 
@@ -21,7 +21,7 @@ Doughray consists of four services orchestrated via Docker Compose:
 **External accounts:**
 
 - **SimpleFin Bridge** account — sign up at <https://bridge.simplefin.org> to connect bank and financial institution data.
-- **Azure OpenAI** resource — required for LLM-powered features (insights, categorization).
+- OpenAI-compatible LLM access — required for AI-powered features (insights, categorization).
 
 **Minimum system requirements:**
 
@@ -75,10 +75,10 @@ All variables are defined in `.env.example`. Copy it to `.env` and fill in the v
 | `POSTGRES_PASSWORD` | **Yes** | `changeme_in_production` | PostgreSQL password — **change this in production** |
 | `DATABASE_URL` | **Yes** | `postgresql://finance:changeme_in_production@postgres:5432/finance` | Full Prisma connection string. Must match the user/password/db above. |
 | `SIMPLEFIN_ACCESS_URL` | **Yes** | *(empty)* | SimpleFin Bridge access URL (see Section 4) |
-| `AZURE_OPENAI_ENDPOINT` | **Yes** | *(empty)* | Azure OpenAI resource endpoint, e.g. `https://your-resource.openai.azure.com/` |
-| `AZURE_OPENAI_API_KEY` | **Yes** | *(empty)* | Azure OpenAI API key |
-| `AZURE_OPENAI_DEPLOYMENT` | **Yes** | *(empty)* | Azure OpenAI deployment name (exact Azure AI Studio deployment name) |
-| `AZURE_OPENAI_API_VERSION` | No | `2024-06-01` | Azure OpenAI API version |
+| `OPENAI_BASE_URL` | No | *(empty)* | Custom OpenAI-compatible base URL. Leave empty to use the default OpenAI API. |
+| `OPENAI_API_KEY` | **Yes** | *(empty)* | OpenAI-compatible API key |
+| `OPENAI_MODEL` | **Yes** | *(empty)* | Model or deployment name used for AI features |
+| `OPENAI_TEMPERATURE` | No | `1` | Default temperature for AI jobs and reports |
 | `NODE_ENV` | No | `production` | Node environment (`production` or `development`) |
 | `API_PORT` | No | `3000` | Host port mapped to the API container |
 | `SPA_PORT` | No | `80` | Host port mapped to the SPA/Nginx container |
@@ -122,36 +122,28 @@ All variables are defined in `.env.example`. Copy it to `.env` and fill in the v
 
 ---
 
-## 5. Azure OpenAI Setup
+## 5. OpenAI-Compatible LLM Setup
 
-Azure OpenAI powers the LLM features such as transaction categorization and financial insights.
+An OpenAI-compatible LLM powers features such as transaction categorization and financial insights.
 
-1. **Create an Azure OpenAI resource** in the [Azure Portal](https://portal.azure.com):
-   - Search for "Azure OpenAI" and create a new resource.
-   - Select a supported region and pricing tier.
-
-2. **Deploy a model** — In Azure AI Studio:
-   - Go to **Deployments** → **Create deployment**.
-   - Select the **gpt-4o** model (or your preferred model).
-   - Note the **deployment name** (e.g., `gpt-4o`).
-
-3. **Get your credentials** from the Azure Portal:
-   - **Endpoint URL** — Found under *Keys and Endpoint* (e.g., `https://your-resource.openai.azure.com/`)
-   - **API Key** — Either Key 1 or Key 2 from the same page.
-
-4. **Set the environment variables** in `.env`:
+1. Choose a provider that exposes an OpenAI-compatible chat completions API.
+2. Collect the required credentials:
+   - **API key**
+   - **Model or deployment name**
+   - **Base URL** if you are not using the default OpenAI API
+3. Set the environment variables in `.env`:
 
    ```env
-   AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
-   AZURE_OPENAI_API_KEY=your-api-key-here
-   AZURE_OPENAI_DEPLOYMENT=your-deployment-name
-   AZURE_OPENAI_API_VERSION=2024-06-01
+   OPENAI_BASE_URL=
+   OPENAI_API_KEY=your-api-key-here
+   OPENAI_MODEL=gpt-4o-mini
+   OPENAI_TEMPERATURE=1
    ```
 
-5. **Restart the worker** to apply changes:
+4. **Restart the API and worker** to apply changes:
 
    ```bash
-   docker compose restart worker
+   docker compose restart api worker
    ```
 
 ---
@@ -284,7 +276,7 @@ Before going to production, **always** change:
 
 - `POSTGRES_PASSWORD` — use a strong, randomly generated password (32+ characters).
 - Update `DATABASE_URL` to match the new password.
-- Rotate your `AZURE_OPENAI_API_KEY` periodically.
+- Rotate your `OPENAI_API_KEY` periodically.
 
 ---
 
@@ -365,12 +357,12 @@ Error: connect ECONNREFUSED 127.0.0.1:5432
 - SimpleFin has rate limits — avoid triggering syncs more than once every few minutes.
 - Check worker logs: `docker compose logs worker`
 
-### Azure OpenAI 401 Unauthorized
+### OpenAI API authentication errors
 
-- Verify `AZURE_OPENAI_API_KEY` is correct and not expired.
-- Confirm `AZURE_OPENAI_DEPLOYMENT` matches the exact deployment name in Azure AI Studio.
-- Ensure `AZURE_OPENAI_ENDPOINT` ends with a trailing slash.
-- Check the Azure Portal for any quota or access issues on your resource.
+- Verify `OPENAI_API_KEY` is correct and not expired.
+- Confirm `OPENAI_MODEL` matches the exact model or deployment name your provider expects.
+- If you set `OPENAI_BASE_URL`, verify it points at the provider's OpenAI-compatible endpoint.
+- Check your provider dashboard for quota, billing, or access issues.
 
 ### SPA shows a blank page
 
@@ -476,12 +468,12 @@ docker compose up -d
               ┌────────────┴────────────┐
               │                         │
     ┌─────────▼──────┐     ┌───────────▼────────┐
-    │ SimpleFin Bridge│     │  Azure OpenAI      │
+    │ SimpleFin Bridge│     │ OpenAI-compatible  │
     │ (external)      │     │  (external)        │
     └────────────────┘     └────────────────────┘
 ```
 
 - The **SPA** serves the React frontend and proxies `/api/` requests to the **API** via Nginx.
 - The **API** handles REST endpoints and runs Prisma migrations on startup.
-- The **Worker** syncs financial data from SimpleFin and processes it with Azure OpenAI.
+- The **Worker** syncs financial data from SimpleFin and processes it with an OpenAI-compatible LLM service.
 - **PostgreSQL** stores all application data in a persistent Docker volume (`pgdata`).

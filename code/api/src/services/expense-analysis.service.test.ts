@@ -18,14 +18,16 @@ const { openAiMock } = vi.hoisted(() => ({
   },
 }));
 
-const { azureConfigMock } = vi.hoisted(() => ({
-  azureConfigMock: {
-    getMissingAzureOpenAIConfig: vi.fn(),
+const { openAiConfigMock } = vi.hoisted(() => ({
+  openAiConfigMock: {
+    getMissingOpenAIConfig: vi.fn(),
+    getOpenAIModel: vi.fn().mockReturnValue('gpt-4o-mini'),
+    getOpenAITemperature: vi.fn().mockReturnValue(1),
   },
 }));
 
 vi.mock('../lib/prisma', () => ({ prisma: prismaMock }));
-vi.mock('../lib/openai', () => ({ default: openAiMock, ...azureConfigMock }));
+vi.mock('../lib/openai', () => ({ default: openAiMock, ...openAiConfigMock }));
 
 import { analyzeExpenseOptimization, generateExpenseAnalysis, normalizePayee } from './expense-analysis.service';
 
@@ -61,7 +63,7 @@ describe('expense-analysis.service', () => {
   });
 
   it('generates and persists expense analysis report', async () => {
-    azureConfigMock.getMissingAzureOpenAIConfig.mockReturnValue([]);
+    openAiConfigMock.getMissingOpenAIConfig.mockReturnValue([]);
     prismaMock.report.findFirst.mockResolvedValue(null);
     prismaMock.transaction.findMany.mockResolvedValue([
       {
@@ -130,16 +132,16 @@ describe('expense-analysis.service', () => {
     );
   });
 
-  it('throws when Azure config is missing', async () => {
-    azureConfigMock.getMissingAzureOpenAIConfig.mockReturnValue(['AZURE_OPENAI_ENDPOINT']);
+  it('throws when OpenAI config is missing', async () => {
+    openAiConfigMock.getMissingOpenAIConfig.mockReturnValue(['OPENAI_API_KEY']);
 
-    await expect(generateExpenseAnalysis()).rejects.toThrow('Missing Azure OpenAI config');
+    await expect(generateExpenseAnalysis()).rejects.toThrow('Missing OpenAI config');
     expect(prismaMock.report.findFirst).not.toHaveBeenCalled();
     expect(prismaMock.report.create).not.toHaveBeenCalled();
   });
 
   it('returns existing report for current period instead of regenerating', async () => {
-    azureConfigMock.getMissingAzureOpenAIConfig.mockReturnValue([]);
+    openAiConfigMock.getMissingOpenAIConfig.mockReturnValue([]);
     prismaMock.report.findFirst.mockResolvedValue({ id: 'existing', type: 'SPENDING_ANALYSIS' });
 
     const result = await generateExpenseAnalysis();
@@ -151,7 +153,7 @@ describe('expense-analysis.service', () => {
   });
 
   it('overwrites existing report when requested', async () => {
-    azureConfigMock.getMissingAzureOpenAIConfig.mockReturnValue([]);
+    openAiConfigMock.getMissingOpenAIConfig.mockReturnValue([]);
     prismaMock.report.findFirst.mockResolvedValue({ id: 'existing', type: 'SPENDING_ANALYSIS' });
     prismaMock.transaction.findMany.mockResolvedValue([]);
     openAiMock.chat.completions.create.mockResolvedValue({

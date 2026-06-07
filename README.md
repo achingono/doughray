@@ -27,7 +27,7 @@ A self-hosted personal finance dashboard that aggregates all your bank accounts,
 - 📝 **Reports** — LLM-generated monthly narrative reports with financial grades, highlights, and personalized recommendations
 - ⚙️ **Settings** — SimpleFin sync status, manual sync trigger, sync history, and category management
 - 🔄 **Automatic Sync** — Scheduled imports every 6 hours via SimpleFin
-- 🤖 **AI Categorization** — Azure OpenAI auto-categorizes new transactions
+- 🤖 **AI Categorization** — An OpenAI-compatible LLM auto-categorizes new transactions
 - 🐳 **One-Command Deploy** — Full stack runs with a single `docker compose up`
 
 ---
@@ -51,7 +51,7 @@ A self-hosted personal finance dashboard that aggregates all your bank accounts,
 │                   ┌────┴────────────────────┴─┐         │
 │                   │         worker            │         │
 │                   │       Node-cron           │         │
-│                   │  SimpleFin · Azure OpenAI │         │
+│                   │  SimpleFin · OpenAI API   │         │
 │                   └───────────────────────────┘         │
 │                                                         │
 └─────────────────────────────────────────────────────────┘
@@ -61,7 +61,7 @@ A self-hosted personal finance dashboard that aggregates all your bank accounts,
 | ------------ | ----------------------------------------------------------------------------------------------- |
 | **spa**      | React 18 SPA built with Vite, served by Nginx. Proxies `/api/*` requests to the API container. |
 | **api**      | Express.js REST API on port 3000. Uses Prisma ORM for all database access.                      |
-| **worker**   | Cron job runner — imports transactions via simplefin-cli, categorizes with Azure OpenAI, and generates monthly reports. |
+| **worker**   | Cron job runner — imports transactions via simplefin-cli, categorizes with an OpenAI-compatible LLM, and generates monthly reports. |
 | **postgres** | PostgreSQL 16 (Alpine) storing all application data.                                            |
 
 ---
@@ -72,7 +72,7 @@ A self-hosted personal finance dashboard that aggregates all your bank accounts,
 
 - [Docker](https://docs.docker.com/get-docker/) & [Docker Compose](https://docs.docker.com/compose/install/) v2+
 - A [SimpleFin Bridge](https://beta-bridge.simplefin.org/) access URL
-- An [Azure OpenAI](https://azure.microsoft.com/en-us/products/ai-services/openai-service) deployment (for AI categorization & reports)
+- Access to an OpenAI-compatible LLM API such as OpenAI or Azure OpenAI (for AI categorization & reports)
 
 ### Steps
 
@@ -85,7 +85,7 @@ cd <repo-directory>
 cp .env.example .env
 
 # 3. Configure your environment variables
-#    Edit .env and set your SimpleFin access URL, Azure OpenAI credentials,
+#    Edit .env and set your SimpleFin access URL, OpenAI-compatible LLM credentials,
 #    and PostgreSQL password (see Configuration section below).
 
 # 4. Start everything
@@ -143,7 +143,7 @@ open http://localhost
 | ------------- | -------------------------------- |
 | Node-cron     | Job scheduling                   |
 | simplefin-cli | Bank account data import         |
-| Azure OpenAI     | Transaction categorization & report generation |
+| OpenAI-compatible LLM | Transaction categorization & report generation |
 | TypeScript    | Type safety                      |
 
 ### Infrastructure
@@ -213,16 +213,13 @@ code/worker/src/
 | `POSTGRES_PASSWORD`       | PostgreSQL password                        | ❌       | `changeme_in_production` |
 | `POSTGRES_DB`             | PostgreSQL database name                   | ❌       | `finance` |
 | `SIMPLEFIN_ACCESS_URL`    | SimpleFin Bridge access URL for bank sync  | ✅       | — |
-| `AZURE_OPENAI_ENDPOINT`   | Azure OpenAI service endpoint              | ✅       | — |
-| `AZURE_OPENAI_API_KEY`    | Azure OpenAI API key                       | ✅       | — |
-| `AZURE_OPENAI_DEPLOYMENT` | Azure OpenAI deployment name               | ✅       | — |
-| `AZURE_OPENAI_API_VERSION`| Azure OpenAI API version                   | ❌       | `2024-06-01` |
+| `OPENAI_BASE_URL`         | Custom OpenAI-compatible base URL; leave empty for the default OpenAI API | ❌ | — |
+| `OPENAI_API_KEY`          | OpenAI-compatible API key                  | ✅       | — |
+| `OPENAI_MODEL`            | Model or deployment name used for AI features | ✅    | — |
+| `OPENAI_TEMPERATURE`      | Default temperature for AI jobs and reports | ❌     | `1` |
 | `NODE_ENV`                | Environment (`development` or `production`) | ❌       | `production` |
 | `API_PORT`                | API host port                              | ❌       | `3000` |
 | `SPA_PORT`                | SPA host port                              | ❌       | `80` |
-| `AZURE_OPENAI_DEPLOYMENT`   | Azure OpenAI deployment/model name               | ✅       | —                 |
-| `AZURE_OPENAI_API_VERSION`  | Azure OpenAI API version                         | ❌       | `2024-02-15-preview` |
-| `NODE_ENV`                  | Environment (`development` / `production`)       | ❌       | `production`      |
 
 ---
 

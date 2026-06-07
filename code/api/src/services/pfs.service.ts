@@ -1,5 +1,5 @@
 import { prisma } from '../lib/prisma';
-import openai, { getMissingAzureOpenAIConfig } from '../lib/openai';
+import openai, { getMissingOpenAIConfig, getOpenAIModel, getOpenAITemperature } from '../lib/openai';
 import { isExpenseTransaction } from '../lib/expense-transactions';
 import { decimalToNumber } from '../lib/types';
 import { buildPFSPrompt } from '../prompts/pfs';
@@ -163,9 +163,9 @@ export function buildAssetAllocation(
 }
 
 export async function generatePFS(options: { overwriteExisting?: boolean } = {}): Promise<any> {
-  const missingConfig = getMissingAzureOpenAIConfig();
+  const missingConfig = getMissingOpenAIConfig();
   if (missingConfig.length > 0) {
-    throw new Error(`Missing Azure OpenAI config: ${missingConfig.join(', ')}`);
+    throw new Error(`Missing OpenAI config: ${missingConfig.join(', ')}`);
   }
 
   const now = new Date();
@@ -272,9 +272,9 @@ export async function generatePFS(options: { overwriteExisting?: boolean } = {})
 
   // Call LLM for CPA narrative
   const response = await openai.chat.completions.create({
-    model: process.env.AZURE_OPENAI_DEPLOYMENT!,
+    model: getOpenAIModel(),
     messages: [{ role: 'user', content: prompt }],
-    temperature: process.env.AZURE_OPENAI_TEMPERATURE ? Number(process.env.AZURE_OPENAI_TEMPERATURE) : 1,
+    temperature: getOpenAITemperature(),
     response_format: { type: 'json_object' },
   });
 
