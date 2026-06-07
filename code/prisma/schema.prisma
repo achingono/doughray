@@ -33,6 +33,8 @@ model Account {
   creditCardDetails AccountCreditCardDetails?
   netWorthSnapshots AccountNetWorthSnapshot[]
   assets Asset[]
+  loanTransactionRules LoanTransactionRule[] @relation("LoanTransactionRuleAccount")
+  linkedLoanTransactions LoanTransaction[] @relation("LoanTransactionLinkedAccount")
 
   @@index([type])
   @@index([isActive])
@@ -135,6 +137,8 @@ model Transaction {
   @@index([categoryRuleId])
   @@index([posted])
   @@index([accountId, posted])
+
+  loanTransactions LoanTransaction[] @relation("LoanTransactionSourceTransaction")
 }
 
 model Category {
@@ -149,6 +153,7 @@ model Category {
   transactions Transaction[]
   categoryRules CategoryRule[]
   budgets      Budget[]
+  loanTransactionRules LoanTransactionRule[] @relation("LoanTransactionRuleCategory")
 
   createdAt DateTime @default(now())
 
@@ -405,4 +410,48 @@ model GoalAccount {
   @@unique([goalId, accountId])
   @@index([goalId])
   @@index([accountId])
+}
+
+enum LoanTransactionRuleType {
+  CATEGORY
+  PAYEE
+}
+
+model LoanTransactionRule {
+  id                  String                    @id @default(cuid())
+  accountId           String
+  account             Account                   @relation(name: "LoanTransactionRuleAccount", fields: [accountId], references: [id], onDelete: Cascade)
+  ruleType            LoanTransactionRuleType
+  categoryId          String?
+  category            Category?                 @relation(name: "LoanTransactionRuleCategory", fields: [categoryId], references: [id], onDelete: SetNull)
+  normalizedPayee     String?
+  description         String?
+  isActive            Boolean                   @default(true)
+  createdAt           DateTime                  @default(now())
+  updatedAt           DateTime                  @updatedAt
+
+  loanTransactions LoanTransaction[] @relation("LoanTransactionRuleTransactions")
+
+  @@index([accountId])
+  @@index([categoryId])
+  @@index([isActive])
+}
+
+model LoanTransaction {
+  id                  String              @id @default(cuid())
+  ruleId              String
+  rule                LoanTransactionRule @relation(name: "LoanTransactionRuleTransactions", fields: [ruleId], references: [id], onDelete: Cascade)
+  sourceTransactionId String
+  sourceTransaction   Transaction          @relation(name: "LoanTransactionSourceTransaction", fields: [sourceTransactionId], references: [id], onDelete: Cascade)
+  linkedAccountId     String
+  linkedAccount       Account             @relation(name: "LoanTransactionLinkedAccount", fields: [linkedAccountId], references: [id], onDelete: Cascade)
+  amount              Decimal              @db.Decimal(15, 2)
+  posted              DateTime
+  description         String
+  createdAt           DateTime             @default(now())
+
+  @@unique([sourceTransactionId, linkedAccountId])
+  @@index([linkedAccountId])
+  @@index([ruleId])
+  @@index([posted])
 }

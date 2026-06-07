@@ -192,7 +192,13 @@ export const api = {
   getHoldingsHistory: (period: number | string = 'all') => request<{ data: import('../types').TrendDataPoint[] }>(`/holdings/history?period=${period}`),
 
   // Budgets
-  getBudgets: () => request<{ data: import('../types').Budget[] }>('/budgets'),
+  getBudgets: (period?: string) => {
+    const params = new URLSearchParams();
+    if (period) params.set('period', period);
+    const qs = params.toString();
+    const querySuffix = qs ? `?${qs}` : '';
+    return request<{ data: import('../types').Budget[] }>(`/budgets${querySuffix}`);
+  },
   createBudget: (data: { categoryId: string; amount: number; period: string; startDate: string; endDate?: string }) =>
     request('/budgets', { method: 'POST', body: JSON.stringify(data) }),
   updateBudget: (id: string, data: any) =>
@@ -272,4 +278,22 @@ export const api = {
   updateGoalStatus: (id: string, status: string) =>
     request<{ data: import('../types').Goal }>(`/goals/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
   deleteGoal: (id: string) => request(`/goals/${id}`, { method: 'DELETE' }),
+
+  // Loan Transaction Tracking
+  getLoanTransactionRules: (accountId: string) =>
+    request<{ data: import('../types').LoanTransactionRule[] }>(`/loan-transactions/accounts/${accountId}/rules`),
+  createLoanTransactionRule: (accountId: string, data: import('../types').CreateLoanTransactionRuleInput) =>
+    request<{ data: import('../types').LoanTransactionRule }>(`/loan-transactions/accounts/${accountId}/rules`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  updateLoanTransactionRule: (ruleId: string, data: Partial<import('../types').LoanTransactionRule>) =>
+    request<{ data: import('../types').LoanTransactionRule }>(`/loan-transactions/rules/${ruleId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+  deleteLoanTransactionRule: (ruleId: string) =>
+    request(`/loan-transactions/rules/${ruleId}`, { method: 'DELETE' }),
+  runLoanTransactionTracking: (accountId: string) =>
+    request<{ data: { trackedCount: number } }>(`/loan-transactions/accounts/${accountId}/tracking/run`, { method: 'POST' }),
 };

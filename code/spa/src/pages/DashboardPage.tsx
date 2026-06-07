@@ -11,6 +11,8 @@ import { DateRangeFilter } from "@/components/dashboard/DateRangeFilter";
 import { Skeleton } from "@/components/ui/skeleton";
 import dashboardHero from "@/assets/doughray-hero.png";
 import { BRAND } from "@/lib/brand";
+import type { FilterPeriod } from "@/types";
+import { motion } from "framer-motion";
 
 const LOADING_CARD_KEYS = ['dashboard-loading-1', 'dashboard-loading-2', 'dashboard-loading-3', 'dashboard-loading-4'] as const;
 
@@ -41,7 +43,7 @@ function toMonthRange(dateString: string): { startDate: string; endDate: string 
 export function DashboardPage() {
   const navigate = useNavigate();
   const [selectedAccount, setSelectedAccount] = useState("all");
-  const [period, setPeriod] = useState("all");
+  const [period, setPeriod] = useState<FilterPeriod>("all");
   const accountId = selectedAccount === "all" ? undefined : selectedAccount;
   const { summary, trends, spending, budgets, goals, loading, error } = useDashboard(accountId, period);
   const { accounts } = useAccounts();
@@ -92,21 +94,52 @@ export function DashboardPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="relative overflow-hidden rounded-2xl border border-border/70">
-        <img
+    <motion.div 
+      className="space-y-6"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.5, delay: 0.2 }}
+    >
+      <div className="relative overflow-hidden rounded-[2rem] border border-border/40 shadow-2xl">
+        <motion.img
+          initial={{ scale: 1.1 }}
+          animate={{ scale: 1 }}
+          transition={{ duration: 1.5, ease: "easeOut" }}
           src={dashboardHero}
           alt=""
           className="absolute inset-0 h-full w-full object-cover"
           aria-hidden
         />
-        <div className="absolute inset-0 bg-gradient-to-r from-background/95 via-background/85 to-background/60" />
-        <div className="relative flex flex-col gap-4 p-5 md:flex-row md:items-end md:justify-between md:p-6">
-          <div>
-            <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">{BRAND.name} command deck</p>
-            <h2 className="mt-2 text-2xl font-semibold tracking-tight md:text-3xl">Dashboard</h2>
-            <p className="mt-1 text-sm text-muted-foreground">{BRAND.tagline}</p>
-          </div>
+        <div className="absolute inset-0 bg-gradient-to-r from-background via-background/90 to-background/40 backdrop-blur-[2px]" />
+        <div className="relative flex flex-col gap-6 p-8 md:flex-row md:items-end md:justify-between md:p-12 min-h-[40vh]">
+          <motion.div
+            initial="hidden"
+            animate="visible"
+            variants={{
+              visible: { transition: { staggerChildren: 0.1, delayChildren: 0.3 } },
+              hidden: {}
+            }}
+            className="max-w-2xl"
+          >
+            <motion.p 
+              variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } }}
+              className="text-sm font-semibold uppercase tracking-[0.25em] text-primary"
+            >
+              {BRAND.name} command deck
+            </motion.p>
+            <motion.h2 
+              variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } }}
+              className="mt-4 text-fluid-h1 font-bold tracking-tighter"
+            >
+              Dashboard
+            </motion.h2>
+            <motion.p 
+              variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } }}
+              className="mt-4 text-lg text-muted-foreground max-w-lg leading-relaxed"
+            >
+              {BRAND.tagline}
+            </motion.p>
+          </motion.div>
           <DateRangeFilter
             accounts={accounts}
             selectedAccountId={selectedAccount}
@@ -150,6 +183,6 @@ export function DashboardPage() {
         <BudgetProgress budgets={budgets} className="min-h-[390px]" />
         <GoalProgress goals={goals} className="min-h-[390px]" />
       </div>
-    </div>
+    </motion.div>
   );
 }
