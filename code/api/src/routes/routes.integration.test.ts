@@ -49,6 +49,7 @@ const { recategorizationServiceMock } = vi.hoisted(() => ({
 const { categoryRuleServiceMock } = vi.hoisted(() => ({
   categoryRuleServiceMock: {
     listCategoryRules: vi.fn(),
+    createCategoryRule: vi.fn(),
     deleteCategoryRule: vi.fn(),
     applyCategoryRulesToTransactions: vi.fn(),
   },
@@ -441,9 +442,42 @@ describe('API route integration', () => {
       data: [{ id: 'rule1' }],
       pagination: { page: 1, limit: 20, total: 1, totalPages: 1 },
     });
+    categoryRuleServiceMock.createCategoryRule.mockResolvedValue({
+      id: 'rule1',
+      normalizedPayee: 'walmart',
+      categoryId: 'c1',
+      accountId: null,
+    });
     categoryRuleServiceMock.deleteCategoryRule.mockResolvedValue(undefined);
 
     await request(app).get('/api/category-rules?page=1&limit=20').expect(200);
+
+    await request(app)
+      .post('/api/category-rules')
+      .send({
+        normalizedPayee: 'Walmart',
+        categoryId: 'c1',
+        sourceTransactionId: 't1',
+        accountId: null,
+      })
+      .expect(201)
+      .expect({
+        data: {
+          id: 'rule1',
+          normalizedPayee: 'walmart',
+          categoryId: 'c1',
+          accountId: null,
+        },
+      });
+
+    expect(categoryRuleServiceMock.createCategoryRule).toHaveBeenCalledWith(
+      expect.objectContaining({
+        normalizedPayee: 'Walmart',
+        categoryId: 'c1',
+        sourceTransactionId: 't1',
+        accountId: undefined,
+      }),
+    );
     await request(app).delete('/api/category-rules/rule1').expect(204);
   });
 
