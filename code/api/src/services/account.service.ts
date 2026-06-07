@@ -1,6 +1,6 @@
 import { prisma } from '../lib/prisma';
 import { decimalToNumber, AccountWithStats } from '../lib/types';
-import { isLiabilityAccountType, LIABILITY_ACCOUNT_TYPES } from '../lib/account-types';
+import { isLiabilityAccountType, LIABILITY_ACCOUNT_TYPES, type LiabilityAccountType } from '../lib/account-types';
 import { AppError } from '../middleware/error-handler';
 import { InterestType, LoanDetailSource, LoanType, PaymentFrequency } from '@prisma/client';
 import { getTransactionsForAccount as getLoanTrackedTransactions } from './loan-transaction.service';
@@ -195,13 +195,17 @@ export async function createAccount(input: CreateAccountInput) {
     );
   }
 
+  // Capture the validated value so TypeScript can enforce the correct enum type
+  // inside the Prisma $transaction callback.
+  const liabilityAccountType: LiabilityAccountType = input.type;
+
   // Create account and optionally loan details in a transaction
   const account = await prisma.$transaction(async (tx) => {
     const newAccount = await tx.account.create({
       data: {
         externalId: `manual:${Date.now()}:${Math.random().toString(36).slice(2, 11)}`,
         name: input.name,
-        type: input.type,
+        type: liabilityAccountType,
         institution: input.institution ?? null,
         currency: input.currency ?? 'USD',
         balance: input.balance,
