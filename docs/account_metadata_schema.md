@@ -464,7 +464,7 @@ curl http://localhost:3000/api/accounts | jq '.data[] | select(.name | contains(
 **Post-Phase-2 workflow:**
 ```bash
 # Agent reads registered account details
-curl http://localhost:3030/api/accounts/<rrsp-id> | jq '.data.registeredDetails'
+curl http://localhost:3000/api/accounts/<rrsp-id> | jq '.data.registeredDetails'
 # Returns:
 {
   "registrationType": "RRSP",
