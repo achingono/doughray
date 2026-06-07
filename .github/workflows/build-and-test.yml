@@ -161,8 +161,8 @@ jobs:
         if: always() && steps.wait-zap.outcome == 'success'
         run: |
           mkdir -p zap-reports/junit
-          node zap/zap-to-junit.js zap-reports/spa-report.json zap-reports/junit/zap-spa.xml "OWASP ZAP SPA"
-          node zap/zap-to-junit.js zap-reports/api-report.json zap-reports/junit/zap-api.xml "OWASP ZAP API"
+          node scripts/zap/zap-to-junit.js zap-reports/spa-report.json zap-reports/junit/zap-spa.xml "OWASP ZAP SPA"
+          node scripts/zap/zap-to-junit.js zap-reports/api-report.json zap-reports/junit/zap-api.xml "OWASP ZAP API"
 
       - name: OWASP ZAP scan summary
         if: always() && steps.wait-zap.outcome == 'success'
