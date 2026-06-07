@@ -1,6 +1,6 @@
 import { prisma } from '../lib/prisma';
 import { decimalToNumber, AccountWithStats } from '../lib/types';
-import { isLiabilityAccountType, LiabilityAccountType, LIABILITY_ACCOUNT_TYPES } from '../lib/account-types';
+import { isLiabilityAccountType, LIABILITY_ACCOUNT_TYPES } from '../lib/account-types';
 import { AppError } from '../middleware/error-handler';
 import { InterestType, LoanDetailSource, LoanType, PaymentFrequency } from '@prisma/client';
 import { getTransactionsForAccount as getLoanTrackedTransactions } from './loan-transaction.service';
