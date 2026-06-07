@@ -456,7 +456,7 @@ Add to skill confirmation rules:
 **Current (post-loan-details) workflow:**
 ```bash
 # Agent can only see balance
-curl http://localhost:3030/api/accounts | jq '.data[] | select(.name | contains("RRSP"))'
+curl http://localhost:3000/api/accounts | jq '.data[] | select(.name | contains("RRSP"))'
 # Returns: { name: "RRSP (TD)", balance: 185230.45, type: "INVESTMENT" }
 # Agent: "I can see your RRSP balance but not your contribution room."
 ```
