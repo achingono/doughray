@@ -1,8 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { validate } from '../middleware/validation';
-import { AppError } from '../middleware/error-handler';
-import { deleteCategoryRule, listCategoryRules, createCategoryRule, type CreateCategoryRuleInput } from '../services/category-rule.service';
+import { deleteCategoryRule, listCategoryRules, createCategoryRule } from '../services/category-rule.service';
 
 const router = Router();
 
