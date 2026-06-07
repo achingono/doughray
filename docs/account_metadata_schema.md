@@ -476,8 +476,8 @@ curl http://localhost:3030/api/accounts/<rrsp-id> | jq '.data.registeredDetails'
   "verificationSource": "CRA_NOTICE_OF_ASSESSMENT"
 }
 
-# Agent: "You have $59,890 in total room ($31,560 this year + $28,330 carryforward).
-#         You've contributed $8,000 YTD, so you can add $23,560 more this year.
+# Agent: "You have $67,890 in total room.
+#         You've contributed $8,000 YTD, so you can add $59,890 more.
 #         That's perfect timing for your tax return strategy."
 ```
 
