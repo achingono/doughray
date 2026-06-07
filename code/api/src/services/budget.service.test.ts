@@ -9,6 +9,9 @@ const { prismaMock } = vi.hoisted(() => ({
       update: vi.fn(),
       delete: vi.fn(),
     },
+    category: {
+      findMany: vi.fn(),
+    },
     transaction: {
       aggregate: vi.fn(),
     },
@@ -24,7 +27,7 @@ describe('budget.service', () => {
     vi.clearAllMocks();
   });
 
-  it('computes budget progress values', async () => {
+  it('computes budget progress values including descendant categories', async () => {
     prismaMock.budget.findMany.mockResolvedValue([
       {
         id: 'b1',
@@ -36,10 +39,32 @@ describe('budget.service', () => {
         endDate: null,
       },
     ]);
+    prismaMock.category.findMany.mockResolvedValue([
+      { id: 'c1', parentId: null, name: 'Food' },
+      { id: 'c1a', parentId: 'c1', name: 'Groceries' },
+      { id: 'c1b', parentId: 'c1', name: 'Restaurants' },
+      { id: 'c1b1', parentId: 'c1b', name: 'Delivery' },
+      { id: 'transfer', parentId: 'c1', name: 'Transfers' },
+      { id: 'other', parentId: null, name: 'Other' },
+    ]);
     prismaMock.transaction.aggregate.mockResolvedValue({ _sum: { amount: new Decimal('-125.50') } });
 
     const result = await getBudgets();
 
+    expect(prismaMock.transaction.aggregate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          categoryId: { in: expect.arrayContaining(['c1', 'c1a', 'c1b', 'c1b1']) },
+        }),
+      }),
+    );
+    expect(prismaMock.transaction.aggregate).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          categoryId: { in: expect.arrayContaining(['transfer']) },
+        }),
+      }),
+    );
     expect(result).toEqual([
       expect.objectContaining({
         id: 'b1',

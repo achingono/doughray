@@ -1,19 +1,19 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../lib/api';
-import type { Budget } from '../types';
+import type { Budget, FilterPeriod } from '../types';
 
-export function useBudgets() {
+export function useBudgets(period: FilterPeriod = 'all') {
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const fetchBudgets = useCallback(() => {
     setLoading(true);
-    api.getBudgets()
+    api.getBudgets(period)
       .then(res => setBudgets(res.data))
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [period]);
 
   useEffect(() => { fetchBudgets(); }, [fetchBudgets]);
 

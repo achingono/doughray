@@ -1158,6 +1158,138 @@ cron.schedule('0 8 * * 1', async () => {
 
 ---
 
+### Manual Liability Account Creation
+
+The manual liability account creation feature allows users to record loans, mortgages, and credit cards without requiring transaction imports or institutional sync.
+
+#### Feature Overview
+
+- **Supported Types:** CREDIT_CARD, LOAN, MORTGAGE
+- **Optional Loan Details:** Comprehensive metadata for loans (interest rate, payment amounts, term dates, amortization info)
+- **API Endpoint:** `POST /api/accounts`
+- **UI Component:** `LiabilityForm` modal in Holdings page
+
+#### Implementation Details
+
+**Backend (API):**
+
+1. **Database Schema** (`prisma/schema.prisma`):
+   - Account model supports `CREDIT_CARD`, `LOAN`, `MORTGAGE` types
+   - AccountLoanDetails table stores optional loan metadata (1:1 with Account)
+   - Migration creates AccountLoanDetails table with CASCADE delete
+
+2. **Service Layer** (`api/src/services/account.service.ts`):
+   - `createAccount()` function validates liability type and creates account + optional loan details in a transaction
+   - `isLiabilityType()` helper ensures only supported types can be created manually
+   - Throws `AppError(400, 'VALIDATION_ERROR')` for non-liability types
+
+3. **Route Handler** (`api/src/routes/accounts.ts`):
+   - `POST /api/accounts` endpoint with Zod validation
+   - Validates loan details (term date ordering, amortization months logic)
+   - Returns 201 + account detail on success
+   - Returns 400 + validation errors on failure
+
+**Frontend (SPA):**
+
+1. **Types** (`spa/src/types/index.ts`):
+   - `CreateLiabilityAccountInput` interface with optional `loanDetails` object
+   - All date fields accept ISO strings (converted from form date inputs)
+
+2. **Component** (`spa/src/components/holdings/LiabilityForm.tsx`):
+   - Dialog modal using React Hook Form + Zod
+   - Base fields: name, type, institution, balance, currency
+   - Expandable loan details section with optional checkbox
+   - Loan details fields: type, principal, interest rate, payments, term dates, amortization, notes
+
+3. **Hook** (`spa/src/hooks/use-accounts.ts`):
+   - `createAccount()` method calls `api.createAccount()`
+   - Integration with HoldingsPage for refresh and toast notifications
+
+4. **Page Integration** (`spa/src/pages/HoldingsPage.tsx`):
+   - "Create Account" button in liabilities section header
+   - Opens LiabilityForm modal on click
+   - Refreshes holdings and shows toast on successful creation
+
+#### Example Usage
+
+**Creating a Credit Card (No Details):**
+
+```bash
+curl -X POST http://localhost:3000/api/accounts \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "My Visa",
+    "type": "CREDIT_CARD",
+    "institution": "Chase",
+    "balance": -2500
+  }'
+```
+
+**Creating a Mortgage (With Details):**
+
+```bash
+curl -X POST http://localhost:3000/api/accounts \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Primary Mortgage",
+    "type": "MORTGAGE",
+    "institution": "TD Bank",
+    "balance": -500000,
+    "loanDetails": {
+      "loanType": "MORTGAGE",
+      "originalPrincipal": 559000,
+      "currentPrincipal": 538830,
+      "interestRateAnnual": 5.05,
+      "paymentAmount": 1631.86,
+      "paymentFrequency": "SEMI_MONTHLY",
+      "termStartDate": "2024-08-01T00:00:00.000Z",
+      "termMaturityDate": "2027-08-01T00:00:00.000Z",
+      "originalAmortizationMonths": 300,
+      "remainingAmortizationMonths": 279
+    }
+  }'
+```
+
+#### Testing
+
+**Unit Tests:**
+- Account service tests: `api/src/services/account.service.test.ts` (createAccount transaction, validation)
+- Asset service tests: `api/src/services/asset.service.test.ts` (accountId linking, non-liability rejection)
+
+**Integration Tests:**
+- Route tests: `api/src/routes/routes.integration.test.ts` (POST /api/accounts success, validation errors)
+
+**Run Tests:**
+```bash
+npm run test:api -- account.service.test.ts
+npm run test:api -- asset.service.test.ts
+npm run test:api -- routes.integration.test.ts
+```
+
+#### Asset Linking
+
+Assets can optionally link to liability accounts (e.g., house property → mortgage, vehicle → auto loan):
+
+- **Schema:** Asset model has nullable `accountId` FK to Account with `onDelete: SetNull`
+- **Validation:** `updateAsset()` validates accountId references a liability account
+- **UI:** AssetForm can optionally select a linked account when creating/editing assets
+
+#### Migration Notes
+
+**Backward Compatibility:**
+- All changes are additive (new columns, new endpoints, optional fields)
+- Existing accounts unaffected (accountId remains null)
+- SimpleFin sync does not overwrite user-entered loan metadata
+- No existing data loss or schema breaking changes
+
+**Deployment:**
+1. Apply migration: `npx prisma migrate deploy`
+2. Regenerate Prisma client: `npx prisma generate`
+3. Deploy API with new POST /api/accounts endpoint
+4. Deploy SPA with LiabilityForm component and updated HoldingsPage
+
+---
+
 ## 9. Testing
 
 ### API Testing

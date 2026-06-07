@@ -11,6 +11,9 @@ const { prismaMock } = vi.hoisted(() => ({
       delete: vi.fn(),
       aggregate: vi.fn(),
     },
+    account: {
+      findUnique: vi.fn(),
+    },
     assetValuation: {
       create: vi.fn(),
     },
@@ -32,6 +35,7 @@ import {
   getTotalAssetValue,
   updateAsset,
 } from './asset.service';
+import { AppError } from '../middleware/error-handler';
 
 describe('asset.service', () => {
   beforeEach(() => {
@@ -147,5 +151,154 @@ describe('asset.service', () => {
 
     expect(valuation).toEqual(expect.objectContaining({ id: 'v2', value: 300000, source: 'AI' }));
     expect(total).toBe(345000);
+  });
+
+  it('creates asset with liability account link', async () => {
+    prismaMock.account.findUnique.mockResolvedValue({
+      id: 'mortgage-acct',
+      type: 'MORTGAGE',
+    });
+    prismaMock.asset.create.mockResolvedValue({
+      id: 'asset-home',
+      name: 'Primary Residence',
+      type: 'REAL_ESTATE',
+      purchasePrice: new Decimal('600000'),
+      currentValue: new Decimal('750000'),
+      purchaseDate: new Date('2020-01-01T00:00:00.000Z'),
+      address: '123 Main St',
+      metadata: null,
+      lastValuationDate: new Date('2026-04-24T00:00:00.000Z'),
+      accountId: 'mortgage-acct',
+      createdAt: new Date('2026-04-24T00:00:00.000Z'),
+      updatedAt: new Date('2026-04-24T00:00:00.000Z'),
+    });
+
+    const created = await createAsset({
+      name: 'Primary Residence',
+      type: 'REAL_ESTATE',
+      purchasePrice: 600000,
+      currentValue: 750000,
+      purchaseDate: new Date('2020-01-01T00:00:00.000Z'),
+      address: '123 Main St',
+      accountId: 'mortgage-acct',
+    });
+
+    expect(prismaMock.account.findUnique).toHaveBeenCalledWith({
+      where: { id: 'mortgage-acct' },
+      select: { type: true },
+    });
+    expect(prismaMock.asset.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          accountId: 'mortgage-acct',
+        }),
+      }),
+    );
+    expect(created).toEqual(
+      expect.objectContaining({
+        id: 'asset-home',
+        accountId: 'mortgage-acct',
+      }),
+    );
+  });
+
+  it('rejects asset link to non-existent account', async () => {
+    prismaMock.account.findUnique.mockResolvedValue(null);
+
+    await expect(
+      createAsset({
+        name: 'Vehicle',
+        type: 'AUTOMOBILE',
+        purchasePrice: 35000,
+        currentValue: 28000,
+        accountId: 'nonexistent-loan',
+      }),
+    ).rejects.toMatchObject({
+      name: 'AppError',
+      statusCode: 400,
+      code: 'VALIDATION_ERROR',
+      message: 'Account not found: nonexistent-loan',
+    } satisfies Partial<AppError>);
+  });
+
+  it('rejects asset link to non-liability account', async () => {
+    prismaMock.account.findUnique.mockResolvedValue({
+      id: 'checking-acct',
+      type: 'CHECKING',
+    });
+
+    await expect(
+      createAsset({
+        name: 'Vehicle',
+        type: 'AUTOMOBILE',
+        purchasePrice: 35000,
+        currentValue: 28000,
+        accountId: 'checking-acct',
+      }),
+    ).rejects.toMatchObject({
+      name: 'AppError',
+      statusCode: 400,
+      code: 'VALIDATION_ERROR',
+    } satisfies Partial<AppError>);
+  });
+
+  it('updates asset to link/unlink liability account', async () => {
+    prismaMock.account.findUnique.mockResolvedValue({
+      id: 'auto-loan',
+      type: 'LOAN',
+    });
+    prismaMock.asset.update.mockResolvedValue({
+      id: 'vehicle-asset',
+      name: 'Tesla Model 3',
+      type: 'AUTOMOBILE',
+      purchasePrice: new Decimal('50000'),
+      currentValue: new Decimal('40000'),
+      purchaseDate: null,
+      address: null,
+      metadata: null,
+      lastValuationDate: null,
+      accountId: 'auto-loan',
+      createdAt: new Date('2026-04-24T00:00:00.000Z'),
+      updatedAt: new Date('2026-04-24T00:00:00.000Z'),
+    });
+
+    const updated = await updateAsset('vehicle-asset', {
+      accountId: 'auto-loan',
+    });
+
+    expect(updated).toEqual(
+      expect.objectContaining({
+        id: 'vehicle-asset',
+        accountId: 'auto-loan',
+      }),
+    );
+  });
+
+  it('allows unlinking asset from account by setting accountId to null', async () => {
+    prismaMock.asset.update.mockResolvedValue({
+      id: 'vehicle-asset',
+      name: 'Tesla Model 3',
+      type: 'AUTOMOBILE',
+      purchasePrice: new Decimal('50000'),
+      currentValue: new Decimal('40000'),
+      purchaseDate: null,
+      address: null,
+      metadata: null,
+      lastValuationDate: null,
+      accountId: null,
+      createdAt: new Date('2026-04-24T00:00:00.000Z'),
+      updatedAt: new Date('2026-04-24T00:00:00.000Z'),
+    });
+
+    const updated = await updateAsset('vehicle-asset', {
+      accountId: null,
+    });
+
+    expect(updated).toEqual(
+      expect.objectContaining({
+        id: 'vehicle-asset',
+        accountId: null,
+      }),
+    );
   });
 });

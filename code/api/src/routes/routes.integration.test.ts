@@ -25,6 +25,7 @@ const { accountServiceMock } = vi.hoisted(() => ({
     upsertAccountRegisteredDetails: vi.fn(),
     getAccountCreditCardDetails: vi.fn(),
     upsertAccountCreditCardDetails: vi.fn(),
+    createAccount: vi.fn(),
   },
 }));
 const { transactionServiceMock } = vi.hoisted(() => ({
@@ -526,7 +527,13 @@ describe('API route integration', () => {
     await request(app).get('/api/assets/missing').expect(404);
     await request(app)
       .post('/api/assets')
-      .send({ name: 'House', purchasePrice: 200000, currentValue: 250000, purchaseDate: '2026-01-01T00:00:00.000Z' })
+      .send({
+        name: 'House',
+        purchasePrice: 200000,
+        currentValue: 250000,
+        purchaseDate: '2026-01-01T00:00:00.000Z',
+        accountId: 'cm9z7x1yq0000f5m7g2d3k4l5',
+      })
       .expect(201);
     await request(app).put('/api/assets/asset1').send({ currentValue: 260000 }).expect(200);
     await request(app).delete('/api/assets/asset1').expect(204);
@@ -543,5 +550,153 @@ describe('API route integration', () => {
     await request(app).put('/api/goals/goal1').send({ name: 'Emergency Fund' }).expect(200);
     await request(app).patch('/api/goals/goal1/status').send({ status: 'PAUSED' }).expect(200);
     await request(app).delete('/api/goals/goal1').expect(204);
+  });
+
+  it('handles manual liability account creation with and without loan details', async () => {
+    accountServiceMock.createAccount
+      .mockResolvedValueOnce({
+        id: 'cc-acct',
+        name: 'My Credit Card',
+        type: 'CREDIT_CARD',
+        balance: -2500,
+        loanDetails: null,
+      })
+      .mockResolvedValueOnce({
+        id: 'mortgage-acct',
+        name: 'Home Mortgage',
+        type: 'MORTGAGE',
+        balance: -500000,
+        loanDetails: {
+          loanType: 'MORTGAGE',
+          originalPrincipal: 559000,
+          currentPrincipal: 538000,
+          interestRateAnnual: 5.05,
+        },
+      });
+
+    // Create credit card account without loan details
+    const res1 = await request(app)
+      .post('/api/accounts')
+      .send({
+        name: 'My Credit Card',
+        type: 'CREDIT_CARD',
+        institution: 'Bank X',
+        balance: -2500,
+      })
+      .expect(201);
+
+    expect(res1.body.data).toMatchObject({
+      id: 'cc-acct',
+      name: 'My Credit Card',
+      type: 'CREDIT_CARD',
+    });
+
+    expect(accountServiceMock.createAccount).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'My Credit Card',
+        type: 'CREDIT_CARD',
+        balance: -2500,
+      }),
+    );
+
+    // Create mortgage account with loan details
+    const res2 = await request(app)
+      .post('/api/accounts')
+      .send({
+        name: 'Home Mortgage',
+        type: 'MORTGAGE',
+        institution: 'TD Bank',
+        balance: -500000,
+        loanDetails: {
+          loanType: 'MORTGAGE',
+          originalPrincipal: 559000,
+          currentPrincipal: 538000,
+          interestRateAnnual: 5.05,
+          termStartDate: '2024-08-01T00:00:00.000Z',
+          termMaturityDate: '2027-08-01T00:00:00.000Z',
+        },
+      })
+      .expect(201);
+
+    expect(res2.body.data).toMatchObject({
+      id: 'mortgage-acct',
+      name: 'Home Mortgage',
+      type: 'MORTGAGE',
+    });
+
+    expect(accountServiceMock.createAccount).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'Home Mortgage',
+        type: 'MORTGAGE',
+        loanDetails: expect.objectContaining({
+          loanType: 'MORTGAGE',
+        }),
+      }),
+    );
+  });
+
+  it('rejects POST /api/accounts with non-liability account types', async () => {
+    await request(app)
+      .post('/api/accounts')
+      .send({
+        name: 'Checking Account',
+        type: 'CHECKING',
+        balance: 1000,
+      })
+      .expect(400);
+  });
+
+  it('validates POST /api/accounts request payload', async () => {
+    // Missing required name field
+    await request(app)
+      .post('/api/accounts')
+      .send({
+        type: 'CREDIT_CARD',
+        balance: 1000,
+      })
+      .expect(400);
+
+    // Missing required type field
+    await request(app)
+      .post('/api/accounts')
+      .send({
+        name: 'Account',
+        balance: 1000,
+      })
+      .expect(400);
+
+    // Missing required balance field
+    await request(app)
+      .post('/api/accounts')
+      .send({
+        name: 'Account',
+        type: 'LOAN',
+      })
+      .expect(400);
+
+    // Invalid type enum value
+    await request(app)
+      .post('/api/accounts')
+      .send({
+        name: 'Account',
+        type: 'INVALID_TYPE',
+        balance: 1000,
+      })
+      .expect(400);
+
+    // loanDetails term dates must be in chronological order
+    await request(app)
+      .post('/api/accounts')
+      .send({
+        name: 'Mortgage Account',
+        type: 'MORTGAGE',
+        balance: -250000,
+        loanDetails: {
+          loanType: 'MORTGAGE',
+          termStartDate: '2027-08-01T00:00:00.000Z',
+          termMaturityDate: '2024-08-01T00:00:00.000Z',
+        },
+      })
+      .expect(400);
   });
 });
