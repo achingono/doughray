@@ -74,15 +74,16 @@ describe('importTransactions', () => {
     });
 
     const result = await importTransactions();
+    const [upsertArgs] = prismaMock.account.upsert.mock.calls[0];
 
     expect(result).toEqual({ accountCount: 1, transactionCount: 1 });
     expect(prismaMock.account.upsert).toHaveBeenCalledTimes(1);
-    expect(prismaMock.account.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { externalId: 'ACT-1' },
-        update: expect.not.objectContaining({ loanDetails: expect.anything() }),
-        create: expect.not.objectContaining({ loanDetails: expect.anything() }),
-      }),
-    );
+    expect(upsertArgs.where).toEqual({ externalId: 'ACT-1' });
+    expect(upsertArgs.update).not.toHaveProperty('loanDetails');
+    expect(upsertArgs.create).not.toHaveProperty('loanDetails');
+    expect(upsertArgs.update).not.toHaveProperty('registeredDetails');
+    expect(upsertArgs.create).not.toHaveProperty('registeredDetails');
+    expect(upsertArgs.update).not.toHaveProperty('creditCardDetails');
+    expect(upsertArgs.create).not.toHaveProperty('creditCardDetails');
   });
 });

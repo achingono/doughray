@@ -15,6 +15,11 @@ export interface AccountDetail extends Account {
   institutionDomain: string | null;
   isActive: boolean;
   loanDetails: LoanDetails | null;
+  registeredDetails: RegisteredDetails | null;
+  creditCardDetails: CreditCardDetails | null;
+  investmentDetails: null;
+  savingsDetails: null;
+  genericMetadata: null;
   recentTransactions: TransactionSummary[];
 }
 
@@ -42,6 +47,76 @@ export interface LoanDetails {
   updatedBy: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export type RegistrationType = 'RRSP' | 'TFSA' | 'RESP' | 'RIF' | 'RDSP';
+export type RegistrationVerificationSource =
+  | 'CRA_NOTICE_OF_ASSESSMENT'
+  | 'INSTITUTION_STATEMENT'
+  | 'USER_ENTERED'
+  | 'IMPORTED';
+
+export interface RegisteredDetails {
+  accountId: string;
+  registrationType: RegistrationType;
+  annualContributionLimit: number;
+  totalContributionRoom: number;
+  contributedThisYear: number;
+  unusedCarryforward: number;
+  beneficiaryName: string | null;
+  beneficiaryDateOfBirth: string | null;
+  grantRoomAvailable: number | null;
+  grantsReceived: number | null;
+  subscriptionLimit: number | null;
+  verificationSource: RegistrationVerificationSource;
+  lastVerifiedAt: string;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RegisteredDetailsResponse extends RegisteredDetails {
+  staleness: {
+    isDaysOld: number;
+    isStale: boolean;
+    warningMessage: string | null;
+  };
+}
+
+export type CreditCardRewardsProgram = 'NONE' | 'CASH_BACK' | 'POINTS' | 'MILES' | 'TRAVEL_CREDIT';
+export type CreditCardType = 'CREDIT' | 'CHARGE' | 'SECURED';
+export type CreditCardVerificationSource =
+  | 'INSTITUTION_STATEMENT'
+  | 'USER_ENTERED'
+  | 'SYNCED_FROM_ACCOUNT_AGGREGATOR';
+
+export interface CreditCardDetails {
+  accountId: string;
+  creditLimit: number;
+  currentUtilization: number;
+  annualPercentageRate: number;
+  minimumPaymentDueDate: number;
+  lastStatementBalance: number;
+  lastStatementDate: string | null;
+  hasAnnualFee: boolean;
+  annualFeeAmount: number | null;
+  rewardsProgram: CreditCardRewardsProgram | null;
+  rewardsRate: number | null;
+  rewardsRedeemedThisYear: number | null;
+  issuingBank: string | null;
+  cardType: CreditCardType | null;
+  verificationSource: CreditCardVerificationSource;
+  lastVerifiedAt: string;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreditCardDetailsResponse extends CreditCardDetails {
+  utilization: {
+    isHigh: boolean;
+    warningMessage: string | null;
+  };
 }
 
 export interface TransactionSummary {
