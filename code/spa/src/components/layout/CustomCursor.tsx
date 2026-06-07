@@ -67,8 +67,19 @@ export function CustomCursor() {
       const style = document.createElement('style');
       style.id = 'custom-cursor-style';
       style.innerHTML = `
-        * { cursor: none !important; }
+        body, body * { cursor: none !important; }
+        input, textarea, select, option, [contenteditable="true"] { cursor: auto !important; }
       `;
+      document.head.appendChild(style);
+      return () => {
+        document.body.style.cursor = 'auto';
+        const customCursorStyle = document.getElementById('custom-cursor-style');
+        if (customCursorStyle) {
+          customCursorStyle.remove();
+        }
+      };
+    }
+  }, [isFinePointer]);
       document.head.appendChild(style);
       return () => {
         document.body.style.cursor = 'auto';
