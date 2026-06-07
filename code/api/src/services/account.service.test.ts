@@ -411,6 +411,57 @@ describe('account.service', () => {
     ).rejects.toBeInstanceOf(AppError);
   });
 
+  it('validates partial registered-details updates against persisted contribution values', async () => {
+    prismaMock.account.findUnique
+      .mockResolvedValueOnce({
+        id: 'a-reg',
+        registeredDetails: {
+          totalContributionRoom: new Decimal('42000'),
+          contributedThisYear: new Decimal('5000'),
+          unusedCarryforward: new Decimal('30000'),
+        },
+      })
+      .mockResolvedValueOnce({
+        id: 'a-reg',
+        registeredDetails: {
+          accountId: 'a-reg',
+          registrationType: 'RRSP',
+          annualContributionLimit: new Decimal('31560'),
+          totalContributionRoom: new Decimal('42000'),
+          contributedThisYear: new Decimal('6000'),
+          unusedCarryforward: new Decimal('30000'),
+          beneficiaryName: null,
+          beneficiaryDateOfBirth: null,
+          grantRoomAvailable: null,
+          grantsReceived: null,
+          subscriptionLimit: null,
+          verificationSource: 'CRA_NOTICE_OF_ASSESSMENT',
+          lastVerifiedAt: new Date('2026-03-15T00:00:00.000Z'),
+          notes: null,
+          createdAt: new Date('2026-03-15T10:22:00.000Z'),
+          updatedAt: new Date('2026-04-10T14:50:00.000Z'),
+        },
+      });
+    prismaMock.accountRegisteredDetails.upsert.mockResolvedValue({ accountId: 'a-reg' });
+
+    const result = await upsertAccountRegisteredDetails('a-reg', {
+      registrationType: 'RRSP',
+      contributedThisYear: 6000,
+      lastVerifiedAt: new Date('2026-03-15T00:00:00.000Z'),
+    });
+
+    expect(prismaMock.accountRegisteredDetails.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: expect.objectContaining({
+          contributedThisYear: 6000,
+          totalContributionRoom: undefined,
+          unusedCarryforward: undefined,
+        }),
+      }),
+    );
+    expect(result).toEqual(expect.objectContaining({ accountId: 'a-reg', contributedThisYear: 6000 }));
+  });
+
   it('gets credit card details with utilization warning', async () => {
     prismaMock.account.findUnique.mockResolvedValue({
       id: 'a-cc',
