@@ -6,19 +6,23 @@ WORKDIR /app
 # Copy root workspace files
 COPY package.json ./
 COPY package-lock.json ./
+COPY api/package.json ./api/
+COPY shared/package.json ./shared/
+COPY spa/package.json ./spa/
 COPY worker/package.json ./worker/
 COPY prisma/ ./prisma/
 
 # Install dependencies and generate Prisma client in the worker workspace
-RUN cd worker && npm install \
-    && npm install prisma@6.5.0 --save-dev \
-    && npx prisma generate --schema=../prisma/schema.prisma
+RUN npm install \
+    && npx prisma generate --schema=prisma/schema.prisma
 
-# Copy worker source
+# Copy shared and worker source
+COPY shared/ ./shared/
 COPY worker/ ./worker/
 
 # Build
-RUN cd worker && npx tsc
+RUN npm run build --workspace=@doughray/shared \
+    && npm run build --workspace=worker
 
 # Production stage
 FROM node:20-alpine
@@ -56,6 +60,7 @@ RUN set -eux; \
     apk del curl
 
 COPY --from=builder /app/worker/package.json ./
+COPY --from=builder /app/shared ./shared
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/worker/dist ./dist
 COPY --from=builder /app/prisma ./prisma
