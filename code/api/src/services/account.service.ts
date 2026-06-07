@@ -438,7 +438,16 @@ export async function getAccountRegisteredDetails(id: string) {
 export async function upsertAccountRegisteredDetails(id: string, input: UpsertRegisteredDetailsInput) {
   const existing = await prisma.account.findUnique({
     where: { id },
-    select: { id: true },
+    select: {
+      id: true,
+      registeredDetails: {
+        select: {
+          totalContributionRoom: true,
+          contributedThisYear: true,
+          unusedCarryforward: true,
+        },
+      },
+    },
   });
 
   if (!existing) return null;
@@ -451,9 +460,15 @@ export async function upsertAccountRegisteredDetails(id: string, input: UpsertRe
   toNonNegative(input.grantsReceived, 'grantsReceived');
   toNonNegative(input.subscriptionLimit, 'subscriptionLimit');
 
-  const totalContributionRoom = input.totalContributionRoom ?? 0;
-  const contributedThisYear = input.contributedThisYear ?? 0;
-  const unusedCarryforward = input.unusedCarryforward ?? 0;
+  const totalContributionRoom =
+    input.totalContributionRoom ??
+    (existing.registeredDetails ? decimalToNumber(existing.registeredDetails.totalContributionRoom) : 0);
+  const contributedThisYear =
+    input.contributedThisYear ??
+    (existing.registeredDetails ? decimalToNumber(existing.registeredDetails.contributedThisYear) : 0);
+  const unusedCarryforward =
+    input.unusedCarryforward ??
+    (existing.registeredDetails ? decimalToNumber(existing.registeredDetails.unusedCarryforward) : 0);
 
   if (contributedThisYear + unusedCarryforward > totalContributionRoom) {
     throw new AppError(

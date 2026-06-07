@@ -115,15 +115,16 @@ const registeredDetailsSchema = z
     notes: z.string().trim().max(2000).nullable().optional(),
   })
   .superRefine((value, ctx) => {
-    const totalContributionRoom = value.totalContributionRoom ?? 0;
-    const contributedThisYear = value.contributedThisYear ?? 0;
-    const unusedCarryforward = value.unusedCarryforward ?? 0;
-
-    if (contributedThisYear + unusedCarryforward > totalContributionRoom) {
+    if (
+      value.totalContributionRoom !== undefined &&
+      value.contributedThisYear !== undefined &&
+      value.unusedCarryforward !== undefined &&
+      value.contributedThisYear + value.unusedCarryforward > value.totalContributionRoom
+    ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['totalContributionRoom'],
-        message: `Contributed this year (${contributedThisYear}) + unused carryforward (${unusedCarryforward}) exceeds total contribution room (${totalContributionRoom})`,
+        message: `Contributed this year (${value.contributedThisYear}) + unused carryforward (${value.unusedCarryforward}) exceeds total contribution room (${value.totalContributionRoom})`,
       });
     }
 

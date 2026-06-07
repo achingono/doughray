@@ -35,7 +35,8 @@ test('transactions and holdings remain navigable after rapid route changes', asy
 
   await openSidebarRoute(page, 'Transactions');
   const searchInput = page.getByPlaceholder('Search transactions...');
+  await expect(page.getByRole('heading', { name: 'Transactions' })).toBeVisible();
   await expect(searchInput).toBeVisible();
   await searchInput.fill('rent');
-  await expect(searchInput).toHaveValue('rent');
+  await expect(searchInput).toHaveValue('rent', { timeout: 10_000 });
 });

@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, vi } from "vitest"
 import { act, renderHook } from "@testing-library/react"
+import { describe, it, expect, beforeEach, vi } from "vitest"
 import { reducer, useToast, toast } from "./use-toast"
 
 describe("use-toast", () => {
@@ -125,20 +125,12 @@ describe("use-toast", () => {
 
     it("should handle dismiss without toastId", () => {
       const { result } = renderHook(() => useToast())
-      expect(() => {
-        act(() => {
-          result.current.dismiss()
-        })
-      }).not.toThrow()
+      expect(() => act(() => result.current.dismiss())).not.toThrow()
     })
 
     it("should handle dismiss with toastId", () => {
       const { result } = renderHook(() => useToast())
-      expect(() => {
-        act(() => {
-          result.current.dismiss("test-id")
-        })
-      }).not.toThrow()
+      expect(() => act(() => result.current.dismiss("test-id"))).not.toThrow()
     })
   })
 })

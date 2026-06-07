@@ -11,10 +11,14 @@ const WEEKS_PER_MONTH = 52.1429 / 12;
 
 const EXCLUDED_BUDGET_CATEGORY_NAMES = new Set(['Transfers']);
 
+let cachedCategories: Array<{ id: string; parentId: string | null; name: string }> | null = null;
+
 async function getDescendantCategoryIds(rootCategoryId: string): Promise<string[]> {
-  const categories = await prisma.category.findMany({
-    select: { id: true, parentId: true, name: true },
-  });
+  const categories =
+    cachedCategories ??
+    (cachedCategories = await prisma.category.findMany({
+      select: { id: true, parentId: true, name: true },
+    }));
 
   const childrenByParent = new Map<string | null, Array<{ id: string; name: string }>>();
   for (const category of categories) {

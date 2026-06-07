@@ -18,6 +18,25 @@ import { seedDefaultCategoriesOnStartup } from './lib/seed-categories';
 const app = express();
 const PORT = Number.parseInt(process.env.API_PORT || '3000', 10);
 const corsOrigin = process.env.CORS_ORIGIN || 'http://localhost';
+const contentSecurityPolicy = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+  "frame-ancestors 'none'",
+  "frame-src 'none'",
+  "form-action 'self'",
+  "script-src 'self'",
+  "script-src-elem 'self'",
+  "script-src-attr 'none'",
+  "style-src 'self' 'unsafe-inline'",
+  "style-src-elem 'self' 'unsafe-inline'",
+  "style-src-attr 'none'",
+  "img-src 'self' data: blob:",
+  "font-src 'self' data:",
+  "connect-src 'self'",
+  "worker-src 'self'",
+  "manifest-src 'self'",
+].join('; ');
 
 // Middleware
 app.use(cors({ origin: corsOrigin }));
@@ -26,6 +45,7 @@ app.use((_req, res, next) => {
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  res.setHeader('Content-Security-Policy', contentSecurityPolicy);
   next();
 });
 app.use(express.json());
