@@ -106,7 +106,7 @@ npm run dev:spa
 npm run dev:worker
 # → starts the cron scheduler
 # → runs initial import after 10-second delay
-# → requires SIMPLEFIN_ACCESS_URL and AZURE_OPENAI_* env vars
+# → requires SIMPLEFIN_ACCESS_URL and OPENAI_* env vars for AI-enabled jobs
 ```
 
 Open **http://localhost:5173** in your browser. The Vite dev server proxies all `/api/*` requests to the Express API so you don't need CORS workarounds during development.
@@ -118,11 +118,11 @@ Open **http://localhost:5173** in your browser. The Vite dev server proxies all 
 | `DATABASE_URL`               | Yes      | PostgreSQL connection string               |
 | `API_PORT`                   | No       | API server port (default: `3000`)          |
 | `NODE_ENV`                   | No       | `development` or `production`              |
-| `SIMPLEFIN_ACCESS_URL`       | Worker   | SimpleFin Bridge access URL                |
-| `AZURE_OPENAI_ENDPOINT`      | Worker   | Azure OpenAI endpoint URL                  |
-| `AZURE_OPENAI_API_KEY`       | Worker   | Azure OpenAI API key                       |
-| `AZURE_OPENAI_DEPLOYMENT`    | Worker   | Azure deployment name (no default; required for AI jobs) |
-| `AZURE_OPENAI_API_VERSION`   | Worker   | API version (default: `2024-06-01`)        |
+| `SIMPLEFIN_ACCESS_URL`       | Worker      | SimpleFin Bridge access URL                |
+| `OPENAI_BASE_URL`            | API, Worker | Custom OpenAI-compatible base URL; optional for the default OpenAI API |
+| `OPENAI_API_KEY`             | API, Worker | OpenAI-compatible API key                  |
+| `OPENAI_MODEL`               | API, Worker | Model or deployment name used by AI features |
+| `OPENAI_TEMPERATURE`         | API, Worker | Default temperature for AI requests (default: `1`) |
 
 ---
 
@@ -231,11 +231,11 @@ code/
         ├── index.ts          # Cron scheduler entry — registers all jobs
         ├── jobs/
         │   ├── import-transactions.ts     # Imports from SimpleFin (every 6h)
-        │   ├── categorize-transactions.ts # AI categorization via Azure OpenAI (after import and backfill windows)
+        │   ├── categorize-transactions.ts # AI categorization via an OpenAI-compatible API (after import and backfill windows)
         │   └── generate-reports.ts        # Monthly report + daily net worth snapshot
         ├── lib/
         │   ├── prisma.ts     # PrismaClient singleton
-        │   ├── openai.ts     # Azure OpenAI client
+        │   ├── openai.ts     # OpenAI-compatible client wrapper
         │   └── simplefin.ts  # SimpleFin API client
         └── prompts/
             ├── categorize.ts # Prompt template for transaction categorization
@@ -1519,18 +1519,18 @@ Error: Can't reach database server at `localhost:5432`
 ### Worker Fails to Start
 
 ```
-Error: AZURE_OPENAI_ENDPOINT is not configured
+Error: Missing OpenAI config: OPENAI_API_KEY, OPENAI_MODEL
 ```
 
-The worker requires Azure OpenAI credentials for transaction categorization and report generation. Set these in `.env`:
+AI-powered features require OpenAI-compatible credentials. Set these in `.env`:
 
 ```env
-AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
-AZURE_OPENAI_API_KEY=your-api-key
-AZURE_OPENAI_DEPLOYMENT=your-deployment-name
+OPENAI_BASE_URL=
+OPENAI_API_KEY=your-api-key
+OPENAI_MODEL=gpt-4o-mini
 ```
 
-If you don't have Azure OpenAI access, you can still run the API and SPA without the worker.
+If you don't have LLM access configured, you can still run the API, SPA, and SimpleFin sync flows; AI categorization and AI-generated reports will be unavailable.
 
 ---
 

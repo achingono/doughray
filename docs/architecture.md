@@ -27,10 +27,10 @@ Doughray is a containerized personal finance dashboard composed of **four Docker
 SimpleFin Bridge ──▶ Worker ──▶ PostgreSQL ◀── API ◀── SPA (Browser)
                        │
                        ▼
-                  Azure OpenAI
+               OpenAI-compatible API
 ```
 
-The **Worker** is the only container that communicates with external services (SimpleFin Bridge for transaction data, Azure OpenAI for categorization and report generation). The **API** reads and writes to PostgreSQL on behalf of the **SPA**. PostgreSQL is the single source of truth.
+The **Worker** is the only container that communicates with SimpleFin for transaction data. Both the **Worker** and **API** can call an OpenAI-compatible LLM service for categorization and report generation. The **API** reads and writes to PostgreSQL on behalf of the **SPA**. PostgreSQL is the single source of truth.
 
 ---
 
@@ -53,7 +53,7 @@ The **Worker** is the only container that communicates with external services (S
 │                                                              │
 │  Worker also connects to:                                    │
 │  ┌──────────────┐    ┌──────────────┐                       │
-│  │  SimpleFin   │    │ Azure OpenAI │                       │
+│  │  SimpleFin   │    │ OpenAI API   │                       │
 │  │  Bridge API  │    │    API       │                       │
 │  └──────────────┘    └──────────────┘                       │
 └─────────────────────────────────────────────────────────────┘
@@ -67,7 +67,8 @@ The **Worker** is the only container that communicates with external services (S
 | API      | PostgreSQL    | TCP      | Prisma Client queries          |
 | Worker   | PostgreSQL    | TCP      | Prisma Client queries          |
 | Worker   | SimpleFin     | HTTPS    | Transaction import via CLI     |
-| Worker   | Azure OpenAI  | HTTPS    | Categorization & report gen    |
+| API      | OpenAI-compatible LLM | HTTPS | On-demand AI reports and categorization |
+| Worker   | OpenAI-compatible LLM | HTTPS | Scheduled categorization & report generation |
 
 ---
 
@@ -180,17 +181,17 @@ A **Prisma Client singleton** is instantiated once and reused across all route h
 | Base Image      | `node:20-alpine`               |
 | External Tools  | `simplefin-cli` (global npm)   |
 | Scheduler       | `node-cron`                    |
-| External APIs   | SimpleFin Bridge, Azure OpenAI |
+| External APIs   | SimpleFin Bridge, OpenAI-compatible LLM |
 
 #### Scheduled Jobs
 
 | Job                        | Cron Schedule           | Description                                          |
 | -------------------------- | ----------------------- | ---------------------------------------------------- |
 | Transaction Import         | Every 6 hours           | Pulls new transactions from SimpleFin Bridge         |
-| Transaction Categorization | 15 min after import     | Categorizes uncategorized transactions via Azure OpenAI |
+| Transaction Categorization | 15 min after import     | Categorizes uncategorized transactions via an OpenAI-compatible LLM |
 | Backfill Transactions      | Every 6 hours at :30    | Imports one 90-day historical transaction window per account |
 | Backfill Categorization    | 15 min after backfill   | Categorizes uncategorized transactions imported by backfill |
-| Report Generation          | 1st of month, 6:00 AM  | Generates monthly financial reports via Azure OpenAI  |
+| Report Generation          | 1st of month, 6:00 AM  | Generates monthly financial reports via an OpenAI-compatible LLM  |
 | Net Worth Snapshot         | Daily                   | Records a point-in-time net worth snapshot            |
 
 #### Startup Behavior
@@ -376,7 +377,7 @@ Stores LLM-generated financial reports as structured JSON.
 
 **Notes:**
 
-- The `content` field stores the full structured JSON response from Azure OpenAI, allowing the SPA to render rich report visualizations without additional API calls.
+- The `content` field stores the full structured JSON response from the configured LLM provider, allowing the SPA to render rich report visualizations without additional API calls.
 - The `period` field uses an ISO-style string (e.g. `"2026-03"`) for easy filtering and sorting.
 
 ---
@@ -464,7 +465,7 @@ NetWorthSnapshot (standalone)
 
 ```
 ┌──────────┐    ┌────────────┐    ┌──────────────┐    ┌────────────┐
-│  Cron    │    │ PostgreSQL │    │ Azure OpenAI │    │ PostgreSQL │
+│  Cron    │    │ PostgreSQL │    │ OpenAI API   │    │ PostgreSQL │
 │(15m post)│──▶│  (query)   │──▶│    API       │──▶│  (update)  │
 └──────────┘    └────────────┘    └──────────────┘    └────────────┘
 ```
@@ -473,9 +474,9 @@ NetWorthSnapshot (standalone)
 
 1. **Cron trigger** — fires 15 minutes after the transaction import job to allow imports to complete.
 2. **Query uncategorized** — the Worker queries the database for transactions where `categoryId IS NULL` and `isReviewed = false`.
-3. **Batch requests** — transactions are grouped into batches of **30** per Azure OpenAI API request to stay within token limits while maximizing throughput.
+3. **Batch requests** — transactions are grouped into batches of **30** per OpenAI-compatible API request to stay within token limits while maximizing throughput.
 4. **Build prompt** — each batch includes the list of available categories (id + name) and the transaction descriptions, amounts, and payees.
-5. **Parse response** — Azure OpenAI returns a JSON array of `[{transactionId, categoryId}]` mappings.
+5. **Parse response** — the LLM returns a JSON array of `[{transactionId, categoryId}]` mappings.
 6. **Update transactions** — the Worker updates each transaction's `categoryId` based on the LLM response.
 
 ---
@@ -484,7 +485,7 @@ NetWorthSnapshot (standalone)
 
 ```
 ┌──────────┐    ┌────────────┐    ┌──────────────┐    ┌────────────┐
-│  Cron    │    │ PostgreSQL │    │ Azure OpenAI │    │ PostgreSQL │
+│  Cron    │    │ PostgreSQL │    │ OpenAI API   │    │ PostgreSQL │
 │(1st, 6AM)│──▶│  (query)   │──▶│    API       │──▶│  (insert)  │
 └──────────┘    └────────────┘    └──────────────┘    └────────────┘
 ```
@@ -495,7 +496,7 @@ NetWorthSnapshot (standalone)
 2. **Query previous month** — the Worker retrieves all transactions from the previous calendar month.
 3. **Aggregate data** — totals are computed: total income, total expenses, spending grouped by category, budget vs. actual comparisons.
 4. **Build prompt** — the financial summary data is formatted into a structured prompt requesting analysis, insights, and recommendations.
-5. **LLM response** — Azure OpenAI returns a structured JSON report containing narrative analysis, key metrics, and category breakdowns.
+5. **LLM response** — the LLM returns a structured JSON report containing narrative analysis, key metrics, and category breakdowns.
 6. **Store report** — the Worker inserts a new `Report` record with the structured JSON in the `content` field.
 
 ---
@@ -526,7 +527,7 @@ NetWorthSnapshot (standalone)
 | **Authentication**    | None — single-user, self-hosted on a trusted private network             |
 | **Database credentials** | Passed via environment variables in Docker Compose (never in source code) |
 | **SimpleFin access**  | The SimpleFin access URL (containing embedded credentials) is stored as an environment variable (`SIMPLEFIN_ACCESS_URL`) |
-| **Azure OpenAI**      | API key stored as an environment variable (`AZURE_OPENAI_API_KEY`)       |
+| **OpenAI-compatible LLM** | API key stored as an environment variable (`OPENAI_API_KEY`)       |
 | **Secrets in code**   | No secrets are committed to source control; `.env` files are `.gitignore`d |
 | **Network isolation** | Docker Compose creates an internal bridge network; only the SPA container's port 80 is exposed to the host |
 | **Container images**  | Alpine-based images minimize attack surface                              |
@@ -535,7 +536,7 @@ NetWorthSnapshot (standalone)
 
 - Add a reverse proxy (e.g., Caddy, Traefik) with TLS termination in front of the SPA container.
 - Consider adding basic authentication or a VPN if exposing to a broader network.
-- Rotate SimpleFin access URLs and Azure OpenAI keys periodically.
+- Rotate SimpleFin access URLs and OpenAI-compatible API keys periodically.
 - Enable PostgreSQL SSL for encrypted database connections.
 
 ---

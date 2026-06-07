@@ -1,5 +1,10 @@
 import prisma from '../lib/prisma';
-import openai, { getMissingAzureOpenAIConfig } from '../lib/openai';
+import openai, {
+  getMissingOpenAIConfig,
+  getOpenAIModel,
+  getOpenAITemperature,
+  isOpenAIModelNotFoundError,
+} from '../lib/openai';
 import { normalizePayee } from '../lib/normalize-payee';
 import { buildCategorizationPrompt } from '../prompts/categorize';
 
@@ -52,13 +57,6 @@ function resolveCategoryId(
   return categoryIdByName.get(assignment.categoryName.trim().toLowerCase());
 }
 
-function getTemperature(): number {
-  if (!process.env.AZURE_OPENAI_TEMPERATURE) {
-    return 1;
-  }
-  return Number(process.env.AZURE_OPENAI_TEMPERATURE);
-}
-
 async function categorizeBatch(
   assignments: Assignment[],
   validCategoryIds: Set<string>,
@@ -90,10 +88,10 @@ async function categorizeBatch(
 }
 
 function logBatchError(err: unknown, batchNumber: number): void {
-  if ((err as { code?: string }).code === 'DeploymentNotFound') {
+  if (isOpenAIModelNotFoundError(err)) {
     console.error(
-      `[Categorize] Azure deployment not found: "${process.env.AZURE_OPENAI_DEPLOYMENT}". ` +
-        'Set AZURE_OPENAI_DEPLOYMENT to your exact Azure deployment name.'
+      `[Categorize] OpenAI model not found: "${getOpenAIModel()}". ` +
+        'Set OPENAI_MODEL to your exact provider model name.'
     );
   }
   console.error(`[Categorize] Batch ${batchNumber} failed:`, err);
@@ -164,9 +162,9 @@ export async function categorizeTransactions(): Promise<number> {
   const candidateIds = candidateUncategorized.map((transaction) => transaction.id);
   const ruleApplied = await applyCategoryRulesToTransactions(candidateIds);
 
-  const missingConfig = getMissingAzureOpenAIConfig();
+  const missingConfig = getMissingOpenAIConfig();
   if (missingConfig.length > 0) {
-    console.warn(`[Categorize] Skipping: missing Azure OpenAI config (${missingConfig.join(', ')})`);
+    console.warn(`[Categorize] Skipping: missing OpenAI config (${missingConfig.join(', ')})`);
     return ruleApplied;
   }
 
@@ -213,9 +211,9 @@ export async function categorizeTransactions(): Promise<number> {
 
     try {
       const response = await openai.chat.completions.create({
-        model: process.env.AZURE_OPENAI_DEPLOYMENT!,
+        model: getOpenAIModel(),
         messages: [{ role: 'user', content: prompt }],
-        temperature: getTemperature(),
+        temperature: getOpenAITemperature(),
         response_format: { type: 'json_object' },
       });
 

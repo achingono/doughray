@@ -3,13 +3,18 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
+    "predev": "npm run build --workspace=@doughray/shared",
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+    "prebuild": "npm run build --workspace=@doughray/shared",
     "build": "tsc",
     "start": "node dist/index.js",
+    "pretest": "npm run build --workspace=@doughray/shared",
     "test": "vitest run --config vitest.config.ts",
+    "pretest:coverage": "npm run build --workspace=@doughray/shared",
     "test:coverage": "vitest run --config vitest.config.ts --coverage"
   },
   "dependencies": {
+    "@doughray/shared": "*",
     "@prisma/client": "^6.5.0",
     "cors": "^2.8.5",
     "csv-parse": "^6.2.1",

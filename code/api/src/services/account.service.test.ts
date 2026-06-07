@@ -23,7 +23,14 @@ const { prismaMock } = vi.hoisted(() => ({
   },
 }));
 
+const { loanTransactionServiceMock } = vi.hoisted(() => ({
+  loanTransactionServiceMock: {
+    getTransactionsForAccount: vi.fn().mockResolvedValue([]),
+  },
+}));
+
 vi.mock('../lib/prisma', () => ({ prisma: prismaMock }));
+vi.mock('./loan-transaction.service', () => loanTransactionServiceMock);
 
 import { AppError } from '../middleware/error-handler';
 import {

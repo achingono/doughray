@@ -17,7 +17,7 @@ The worker service runs as a standalone Docker container alongside the API and S
                                   └──┬───────────┬────┘
                                      │           │
                               ┌──────▼──┐  ┌─────▼───────┐
-                              │SimpleFin│  │Azure OpenAI  │
+                              │SimpleFin│  │OpenAI API    │
                               │ Bridge  │  │              │
                               └─────────┘  └──────────────┘
 ```
@@ -28,7 +28,7 @@ The worker service runs as a standalone Docker container alongside the API and S
 |---------|---------|
 | PostgreSQL | Shared database with the API (via Prisma ORM) |
 | SimpleFin Bridge | Financial data aggregation (accounts & transactions) |
-| Azure OpenAI | LLM for categorization and report generation |
+| OpenAI-compatible LLM | LLM for categorization and report generation |
 
 The worker has **6 scheduled cron jobs** and runs an **initial startup sequence** on boot.
 
@@ -39,7 +39,7 @@ The worker has **6 scheduled cron jobs** and runs an **initial startup sequence*
 | Job | Cron Expression | Schedule | Description |
 |-----|----------------|----------|-------------|
 | Import Transactions | `0 */6 * * *` | Every 6 hours (00:00, 06:00, 12:00, 18:00) | Fetches accounts & transactions from SimpleFin |
-| Categorize Transactions | `15 */6 * * *` | 15 min after each import (00:15, 06:15, 12:15, 18:15) | Assigns categories to transactions via Azure OpenAI |
+| Categorize Transactions | `15 */6 * * *` | 15 min after each import (00:15, 06:15, 12:15, 18:15) | Assigns categories to transactions via an OpenAI-compatible LLM |
 | Backfill Transactions | `30 */6 * * *` | Every 6 hours at :30 (00:30, 06:30, 12:30, 18:30) | Imports one 90-day historical window per active account |
 | Categorize Backfilled Transactions | `45 */6 * * *` | 15 min after each backfill (00:45, 06:45, 12:45, 18:45) | Assigns categories to uncategorized backfilled transactions |
 | Generate Monthly Report | `0 6 1 * *` | 1st of each month at 6:00 AM | Creates a narrative monthly financial report |
@@ -133,7 +133,7 @@ The function analyzes the account name (case-insensitive) and balance to assign 
 
 **File:** [`worker/src/jobs/categorize-transactions.ts`](../worker/src/jobs/categorize-transactions.ts)
 
-**Purpose:** Automatically assign categories to uncategorized transactions using Azure OpenAI.
+**Purpose:** Automatically assign categories to uncategorized transactions using an OpenAI-compatible LLM.
 
 **How it works:**
 
@@ -141,7 +141,7 @@ The function analyzes the account name (case-insensitive) and balance to assign 
 2. **Find uncategorized transactions** — Queries transactions where `categoryId IS NULL` and `isReviewed = false`, ordered by `posted` descending, limited to 90 (`BATCH_SIZE * 3`).
 3. **Batch processing** — Splits transactions into batches of 30. For each batch:
    a. Builds a prompt with the category list and transaction details
-   b. Sends to Azure OpenAI (temperature `0.1`, JSON mode)
+   b. Sends to an OpenAI-compatible API (temperature `0.1`, JSON mode)
    c. Parses the response into assignments that may contain `{ transactionId, categoryId }` or `{ transactionId, categoryName }`
    d. Resolves category IDs directly or by normalized category name
    e. Updates matching transactions with the assigned category
@@ -156,7 +156,7 @@ The function analyzes the account name (case-insensitive) and balance to assign 
 
 **Manual override:** Transactions with `isReviewed = true` are never touched by this job. Users can manually categorize and mark transactions as reviewed to prevent AI from overwriting their choices.
 
-**Rate limiting:** Batches are processed sequentially (no parallelism) to avoid exceeding Azure OpenAI rate limits.
+**Rate limiting:** Batches are processed sequentially (no parallelism) to avoid exceeding provider rate limits.
 
 **Response parsing:** The code handles:
 - A raw JSON array
@@ -217,7 +217,7 @@ Only output valid JSON. No explanations.
    - Builds a `categorySpending` map (top 10 categories by spend)
 4. **Gather account data** — Fetches all active accounts with their current balances and types.
 5. **Build prompt** — Assembles all data into the report prompt.
-6. **LLM call** — Sends to Azure OpenAI (temperature `0.3`, JSON mode).
+6. **LLM call** — Sends to an OpenAI-compatible API (temperature `0.3`, JSON mode).
 7. **Store report** — Creates a `Report` record with `type: 'MONTHLY_SUMMARY'`, the LLM-generated JSON as `content`, and the period string.
 
 **Report JSON structure:**
@@ -383,20 +383,18 @@ interface SFResult {
 
 ---
 
-## 5. Azure OpenAI Integration
+## 5. OpenAI-Compatible Integration
 
 **File:** [`worker/src/lib/openai.ts`](../worker/src/lib/openai.ts)
 
-Uses the official `openai` npm package with the `AzureOpenAI` class.
+Uses the official `openai` npm package against an OpenAI-compatible chat completions endpoint.
 
 **Client configuration:**
 
 ```typescript
-const client = new AzureOpenAI({
-  endpoint: process.env.AZURE_OPENAI_ENDPOINT || '',
-  apiKey: process.env.AZURE_OPENAI_API_KEY || '',
-  apiVersion: process.env.AZURE_OPENAI_API_VERSION || '2024-06-01',
-  deployment: process.env.AZURE_OPENAI_DEPLOYMENT || '',
+const client = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY || '',
+  baseURL: process.env.OPENAI_BASE_URL || undefined,
 });
 ```
 
@@ -404,10 +402,10 @@ const client = new AzureOpenAI({
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AZURE_OPENAI_ENDPOINT` | _(required)_ | Azure OpenAI resource endpoint URL |
-| `AZURE_OPENAI_API_KEY` | _(required)_ | Azure OpenAI API key |
-| `AZURE_OPENAI_API_VERSION` | `2024-06-01` | Azure OpenAI API version |
-| `AZURE_OPENAI_DEPLOYMENT` | _(required)_ | Azure deployment name (exact match required) |
+| `OPENAI_BASE_URL` | _(optional)_ | Custom OpenAI-compatible base URL |
+| `OPENAI_API_KEY` | _(required)_ | OpenAI-compatible API key |
+| `OPENAI_MODEL` | _(required)_ | Model or deployment name |
+| `OPENAI_TEMPERATURE` | `1` | Default temperature |
 
 **LLM parameters by job:**
 
@@ -553,7 +551,7 @@ cron.schedule('0 12 * * *', async () => {
 |----------|----------|---------|---------|
 | `DATABASE_URL` | Yes | — | Prisma (all jobs) |
 | `SIMPLEFIN_ACCESS_URL` | Yes | — | SimpleFin CLI (import job) |
-| `AZURE_OPENAI_ENDPOINT` | Yes | — | Azure OpenAI client |
-| `AZURE_OPENAI_API_KEY` | Yes | — | Azure OpenAI client |
-| `AZURE_OPENAI_API_VERSION` | No | `2024-06-01` | Azure OpenAI client |
-| `AZURE_OPENAI_DEPLOYMENT` | Yes | — | Azure OpenAI deployment selection |
+| `OPENAI_BASE_URL` | No | — | OpenAI-compatible client |
+| `OPENAI_API_KEY` | Yes | — | OpenAI-compatible client |
+| `OPENAI_MODEL` | Yes | — | Model or deployment selection |
+| `OPENAI_TEMPERATURE` | No | `1` | Default LLM temperature |

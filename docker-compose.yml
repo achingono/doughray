@@ -30,10 +30,10 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-finance}:${POSTGRES_PASSWORD:-password}@postgres:5432/${POSTGRES_DB:-finance}
       NODE_ENV: ${NODE_ENV:-production}
       API_PORT: "3000"
-      AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT:-}
-      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
-      AZURE_OPENAI_DEPLOYMENT: ${AZURE_OPENAI_DEPLOYMENT:-}
-      AZURE_OPENAI_API_VERSION: ${AZURE_OPENAI_API_VERSION:-2024-06-01}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
+      OPENAI_TEMPERATURE: ${OPENAI_TEMPERATURE:-1}
     command: >
       sh -c "npx prisma migrate deploy --schema=prisma/schema.prisma 2>/dev/null || npx prisma db push --schema=prisma/schema.prisma && node dist/index.js"
     healthcheck:
@@ -67,10 +67,10 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-finance}:${POSTGRES_PASSWORD:-password}@postgres:5432/${POSTGRES_DB:-finance}
       NODE_ENV: ${NODE_ENV:-production}
       SIMPLEFIN_ACCESS_URL: ${SIMPLEFIN_ACCESS_URL:-}
-      AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT:-}
-      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
-      AZURE_OPENAI_DEPLOYMENT: ${AZURE_OPENAI_DEPLOYMENT:-}
-      AZURE_OPENAI_API_VERSION: ${AZURE_OPENAI_API_VERSION:-2024-06-01}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
+      OPENAI_TEMPERATURE: ${OPENAI_TEMPERATURE:-1}
     volumes:
       - ./.config/simplefin-cli:/root/.simplefin-cli
 

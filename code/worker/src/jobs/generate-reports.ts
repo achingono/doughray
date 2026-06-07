@@ -1,5 +1,10 @@
 import prisma from '../lib/prisma';
-import openai, { getMissingAzureOpenAIConfig } from '../lib/openai';
+import openai, {
+  getMissingOpenAIConfig,
+  getOpenAIModel,
+  getOpenAITemperature,
+  isOpenAIModelNotFoundError,
+} from '../lib/openai';
 import { buildMonthlyReportPrompt } from '../prompts/report';
 import { isAssetType, isLiabilityType } from '../lib/account-types';
 
@@ -9,9 +14,9 @@ function decimalToNumber(val: any): number {
 }
 
 export async function generateMonthlyReport(): Promise<void> {
-  const missingConfig = getMissingAzureOpenAIConfig();
+  const missingConfig = getMissingOpenAIConfig();
   if (missingConfig.length > 0) {
-    console.warn(`[Report] Skipping: missing Azure OpenAI config (${missingConfig.join(', ')})`);
+    console.warn(`[Report] Skipping: missing OpenAI config (${missingConfig.join(', ')})`);
     return;
   }
 
@@ -75,9 +80,9 @@ export async function generateMonthlyReport(): Promise<void> {
 
   try {
     const response = await openai.chat.completions.create({
-      model: process.env.AZURE_OPENAI_DEPLOYMENT!,
+      model: getOpenAIModel(),
       messages: [{ role: 'user', content: prompt }],
-      temperature: process.env.AZURE_OPENAI_TEMPERATURE ? Number(process.env.AZURE_OPENAI_TEMPERATURE) : 1,
+      temperature: getOpenAITemperature(),
       response_format: { type: 'json_object' },
     });
 
@@ -100,10 +105,10 @@ export async function generateMonthlyReport(): Promise<void> {
 
     console.log(`[Report] Monthly report for ${period} generated successfully`);
   } catch (err) {
-    if ((err as { code?: string }).code === 'DeploymentNotFound') {
+    if (isOpenAIModelNotFoundError(err)) {
       console.error(
-        `[Report] Azure deployment not found: "${process.env.AZURE_OPENAI_DEPLOYMENT}". ` +
-        'Set AZURE_OPENAI_DEPLOYMENT to your exact Azure deployment name.'
+        `[Report] OpenAI model not found: "${getOpenAIModel()}". ` +
+        'Set OPENAI_MODEL to your exact provider model name.'
       );
     }
     console.error('[Report] Failed to generate report:', err);
