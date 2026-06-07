@@ -76,7 +76,7 @@ export interface UpsertCreditCardDetailsInput {
 
 export interface CreateAccountInput {
   name: string;
-  type: LiabilityAccountType;
+  type: string;
   institution?: string | null;
   currency?: string;
   balance: number;
