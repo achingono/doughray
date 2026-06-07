@@ -20,9 +20,9 @@ function getTrimmedEnvValue(...keys: string[]): string {
 
 function getOpenAIConfig() {
   return {
-    baseUrl: getTrimmedEnvValue('OPENAI_BASE_URL', 'AZURE_OPENAI_ENDPOINT'),
-    apiKey: getTrimmedEnvValue('OPENAI_API_KEY', 'AZURE_OPENAI_API_KEY'),
-    model: getTrimmedEnvValue('OPENAI_MODEL', 'AZURE_OPENAI_DEPLOYMENT', 'OPENAI_PROJECT'),
+    baseUrl: getTrimmedEnvValue('OPENAI_BASE_URL'),
+    apiKey: getTrimmedEnvValue('OPENAI_API_KEY'),
+    model: getTrimmedEnvValue('OPENAI_MODEL'),
   };
 }
 
@@ -41,7 +41,7 @@ export function getOpenAIModel(): string {
 }
 
 export function getOpenAITemperature(): number {
-  const raw = getTrimmedEnvValue('OPENAI_TEMPERATURE', 'AZURE_OPENAI_TEMPERATURE');
+  const raw = getTrimmedEnvValue('OPENAI_TEMPERATURE');
   if (!raw) return 1;
 
   const parsed = Number(raw);
