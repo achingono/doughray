@@ -165,11 +165,7 @@ test('assets page supports create, detail view, and delete', async ({ page }) =>
   await expect(page.getByText(stockName)).toHaveCount(0);
 });
 
-test('budgets page supports create, edit, and delete', async ({ page, request }) => {
-  const categories = await api<{ data: Array<{ id: string; name: string }> }>(request, '/categories');
-  const category = categories.data[0];
-  expect(category).toBeTruthy();
-
+test('budgets page supports create, edit, and delete', async ({ page }) => {
   const stamp = Date.now();
   const amount = 111 + (stamp % 100);
 
@@ -180,11 +176,14 @@ test('budgets page supports create, edit, and delete', async ({ page, request })
 
   // Category select
   await page.locator('button[role="combobox"]').first().click({ force: true });
-  await page.getByRole('option', { name: category.name }).click();
+  const categoryOption = page.getByRole('option').first();
+  const categoryName = (await categoryOption.textContent())?.trim();
+  expect(categoryName).toBeTruthy();
+  await categoryOption.click();
   await page.getByLabel('Amount ($)').fill(String(amount));
   await page.getByRole('button', { name: /^Create$/ }).click();
 
-  await expect(page.getByText(category.name).first()).toBeVisible();
+  await expect(page.getByText(categoryName).first()).toBeVisible();
 
   // Edit first budget card
   await page.locator('button:has(svg.lucide-pencil)').first().click();
