@@ -102,7 +102,7 @@ Tracks RRSP, TFSA, RESP, RIF, RDSP metadata. Fields:
 **Constraints:**
 - `registrationType` + `accountId` unique (one registered detail per account)
 - `contributedThisYear` + `unusedCarryforward` ≤ `totalContributionRoom` (validation rule)
-- RESP: `beneficiaryName` and `beneficiaryDateOfBirth` both required or both null
+- RESP: `beneficiaryName` and `beneficiaryDateOfBirth` are both required
 - All currency fields >= 0
 - `lastVerifiedAt` ≤ now()
 
@@ -267,7 +267,7 @@ Tracks credit card limits, APR, usage, and rewards. Fields:
 |------|---------------|
 | `registrationType` required | "registrationType is required and must be one of: RRSP, TFSA, RESP, RIF, RDSP" |
 | `contributedThisYear` + `unusedCarryforward` ≤ `totalContributionRoom` | "Contributed this year (6000) + unused carryforward (36000) exceeds total contribution room (40000)" |
-| If `registrationType === RESP` and (`beneficiaryName` XOR `beneficiaryDateOfBirth`) provided | "RESP requires both beneficiaryName and beneficiaryDateOfBirth" |
+| If `registrationType === RESP` and either beneficiary field is missing | "RESP requires both beneficiaryName and beneficiaryDateOfBirth" |
 | `verificationSource` in enum | "verificationSource must be one of: CRA_NOTICE_OF_ASSESSMENT, INSTITUTION_STATEMENT, USER_ENTERED, IMPORTED" |
 | All currency fields >= 0 | "annualContributionLimit must be >= 0" |
 

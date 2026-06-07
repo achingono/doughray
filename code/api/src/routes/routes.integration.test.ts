@@ -194,6 +194,17 @@ describe('API route integration', () => {
         isStale: false,
         warningMessage: null,
       },
+    }).mockResolvedValueOnce({
+      accountId: 'a1',
+      registrationType: 'RRSP',
+      totalContributionRoom: 42000,
+      contributedThisYear: 6500,
+      unusedCarryforward: 36000,
+      staleness: {
+        isDaysOld: 40,
+        isStale: false,
+        warningMessage: null,
+      },
     }).mockResolvedValueOnce(null);
     accountServiceMock.getAccountCreditCardDetails.mockResolvedValueOnce({
       accountId: 'a1',
@@ -237,6 +248,14 @@ describe('API route integration', () => {
         contributedThisYear: 6000,
         unusedCarryforward: 36000,
         verificationSource: 'CRA_NOTICE_OF_ASSESSMENT',
+        lastVerifiedAt: '2026-03-15T00:00:00.000Z',
+      })
+      .expect(200);
+    await request(app)
+      .patch('/api/accounts/a1/registered-details')
+      .send({
+        registrationType: 'RRSP',
+        contributedThisYear: 6500,
         lastVerifiedAt: '2026-03-15T00:00:00.000Z',
       })
       .expect(200);
