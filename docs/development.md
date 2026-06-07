@@ -122,6 +122,8 @@ Open **http://localhost:5173** in your browser. The Vite dev server proxies all 
 | `OPENAI_BASE_URL`            | API, Worker | Custom OpenAI-compatible base URL; optional for the default OpenAI API |
 | `OPENAI_API_KEY`             | API, Worker | OpenAI-compatible API key                  |
 | `OPENAI_MODEL`               | API, Worker | Model or deployment name used by AI features |
+| `AZURE_OPENAI_ENDPOINT`      | API, Worker | Azure OpenAI resource endpoint            |
+| `AZURE_OPENAI_API_VERSION`    | API, Worker | Azure OpenAI API version                   |
 | `OPENAI_TEMPERATURE`         | API, Worker | Default temperature for AI requests (default: `1`) |
 
 ---

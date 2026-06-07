@@ -1,4 +1,4 @@
-import OpenAI from 'openai';
+import OpenAI, { AzureOpenAI } from 'openai';
 
 type OpenAICompatibleError = {
   code?: string;
@@ -26,9 +26,26 @@ function getOpenAIConfig() {
   };
 }
 
+function getAzureOpenAIConfig() {
+  return {
+    endpoint: getTrimmedEnvValue('AZURE_OPENAI_ENDPOINT'),
+    apiKey: getTrimmedEnvValue('OPENAI_API_KEY'),
+    apiVersion: getTrimmedEnvValue('AZURE_OPENAI_API_VERSION'),
+    deployment: getTrimmedEnvValue('OPENAI_MODEL'),
+  };
+}
+
 export function getMissingOpenAIConfig(): string[] {
   const openAiConfig = getOpenAIConfig();
+  const azureOpenAiConfig = getAzureOpenAIConfig();
   const missing: string[] = [];
+
+  if (azureOpenAiConfig.endpoint) {
+    if (!azureOpenAiConfig.apiKey) missing.push('OPENAI_API_KEY');
+    if (!azureOpenAiConfig.deployment) missing.push('OPENAI_MODEL');
+    if (!azureOpenAiConfig.apiVersion) missing.push('AZURE_OPENAI_API_VERSION');
+    return missing;
+  }
 
   if (!openAiConfig.apiKey) missing.push('OPENAI_API_KEY');
   if (!openAiConfig.model) missing.push('OPENAI_MODEL');
@@ -58,10 +75,22 @@ export function isOpenAIModelNotFoundError(err: unknown): boolean {
     || (error.status === 404 && typeof message === 'string' && message.includes('model'));
 }
 
-let client: OpenAI | null = null;
+let client: OpenAI | AzureOpenAI | null = null;
 
-function getClient(): OpenAI {
+function getClient(): OpenAI | AzureOpenAI {
   if (client) return client;
+
+  const azureOpenAiConfig = getAzureOpenAIConfig();
+  if (azureOpenAiConfig.endpoint) {
+    client = new AzureOpenAI({
+      apiKey: azureOpenAiConfig.apiKey,
+      apiVersion: azureOpenAiConfig.apiVersion,
+      deployment: azureOpenAiConfig.deployment,
+      endpoint: azureOpenAiConfig.endpoint,
+    });
+
+    return client;
+  }
 
   const openAiConfig = getOpenAIConfig();
   client = new OpenAI({

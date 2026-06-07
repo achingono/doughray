@@ -89,9 +89,13 @@ SIMPLEFIN_ACCESS_URL=https://user:pass@bridge.simplefin.org/simplefin
 | `OPENAI_BASE_URL` | No | *(empty)* | api, worker | Custom OpenAI-compatible base URL. Leave empty to use the default OpenAI API. |
 | `OPENAI_API_KEY` | Yes* | *(empty)* | api, worker | API key for the configured OpenAI-compatible provider |
 | `OPENAI_MODEL` | Yes* | *(empty)* | api, worker | Model or deployment name used for AI features |
+| `AZURE_OPENAI_ENDPOINT` | No | *(empty)* | api, worker | Azure OpenAI resource endpoint. When set, the app uses Azure request shaping. |
+| `AZURE_OPENAI_API_VERSION` | Yes** | *(empty)* | api, worker | Azure OpenAI API version, required when `AZURE_OPENAI_ENDPOINT` is set |
 | `OPENAI_TEMPERATURE` | No | `1` | api, worker | Default temperature for AI-powered requests |
 
 \* Required for AI-powered transaction categorization and report generation. The app still runs without these, but AI categorization and AI-generated reports will not.
+
+\** Required only when using Azure OpenAI.
 
 #### How to Set Up an OpenAI-Compatible Provider
 
@@ -101,6 +105,8 @@ SIMPLEFIN_ACCESS_URL=https://user:pass@bridge.simplefin.org/simplefin
    - **API key** → `OPENAI_API_KEY`
    - **Model or deployment name** → `OPENAI_MODEL`
    - **Base URL** → `OPENAI_BASE_URL` when your provider requires a custom endpoint
+   - **Azure endpoint** → `AZURE_OPENAI_ENDPOINT` when using Azure OpenAI
+   - **Azure API version** → `AZURE_OPENAI_API_VERSION` when using Azure OpenAI
 4. Set the values in your `.env` file
 
 **Example configuration:**
@@ -109,6 +115,8 @@ SIMPLEFIN_ACCESS_URL=https://user:pass@bridge.simplefin.org/simplefin
 OPENAI_BASE_URL=
 OPENAI_API_KEY=your-api-key
 OPENAI_MODEL=gpt-4o-mini
+AZURE_OPENAI_ENDPOINT=
+AZURE_OPENAI_API_VERSION=
 OPENAI_TEMPERATURE=1
 ```
 
