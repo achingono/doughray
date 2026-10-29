@@ -41,7 +41,7 @@ router.get('/accounts/:accountId/rules', async (req, res, next) => {
 
 router.post('/accounts/:accountId/rules', validate(createRuleSchema), async (req, res, next) => {
   try {
-    const body = req.body as any;
+    const body = req.body;
     const accountId = Array.isArray(req.params.accountId) ? req.params.accountId[0] : req.params.accountId;
     const rule = await createRule({
       accountId,
@@ -58,7 +58,7 @@ router.post('/accounts/:accountId/rules', validate(createRuleSchema), async (req
 
 router.patch('/rules/:ruleId', validate(updateRuleSchema), async (req, res, next) => {
   try {
-    const body = req.body as any;
+    const body = req.body;
     const ruleId = Array.isArray(req.params.ruleId) ? req.params.ruleId[0] : req.params.ruleId;
     const rule = await updateRule(ruleId, {
       ruleType: body.ruleType as LoanTransactionRuleType | undefined,

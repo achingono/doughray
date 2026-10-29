@@ -62,16 +62,15 @@ export interface BudgetWithProgress {
   endDate: Date | null;
 }
 
-export async function getBudgets(periodParam?: string): Promise<BudgetWithProgress[]> {
-  const budgets = await prisma.budget.findMany({
-    include: { category: true },
-    orderBy: { category: { name: 'asc' } },
-  });
+interface BudgetPeriod {
+  startDate?: Date;
+  endDate?: Date;
+  monthCountForBudget: number;
+}
 
-  const now = new Date();
-  let startDate: Date | undefined;
-  let endDate: Date | undefined;
-  let monthCountForBudget = 1;
+async function resolveBudgetPeriod(periodParam: string | undefined, now: Date): Promise<BudgetPeriod> {
+  const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const currentMonthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
 
   if (periodParam === 'all') {
     const firstTx = await prisma.transaction.findFirst({
@@ -80,23 +79,33 @@ export async function getBudgets(periodParam?: string): Promise<BudgetWithProgre
     });
     // Add 1 so the "all" range includes the month of the first transaction
     // itself, not just the number of month boundaries between that date and now.
-    monthCountForBudget = deriveMonthCount(undefined, firstTx?.posted, now) + 1;
-    startDate = undefined;
-    endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-  } else if (periodParam) {
-    const months = parseInt(periodParam, 10);
-    if (!isNaN(months) && months > 0) {
-      startDate = new Date(now.getFullYear(), now.getMonth() - months + 1, 1);
-      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-      monthCountForBudget = months;
-    } else {
-      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-    }
-  } else {
-    startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-    endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    return { startDate: undefined, endDate: currentMonthEnd, monthCountForBudget: deriveMonthCount(undefined, firstTx?.posted, now) + 1 };
   }
+
+  if (periodParam) {
+    const months = Number.parseInt(periodParam, 10);
+    if (Number.isNaN(months) || months <= 0) {
+      return { startDate: currentMonthStart, endDate: currentMonthEnd, monthCountForBudget: 1 };
+    }
+    return {
+      startDate: new Date(now.getFullYear(), now.getMonth() - months + 1, 1),
+      endDate: currentMonthEnd,
+      monthCountForBudget: months,
+    };
+  }
+
+  return { startDate: currentMonthStart, endDate: currentMonthEnd, monthCountForBudget: 1 };
+}
+
+export async function getBudgets(periodParam?: string): Promise<BudgetWithProgress[]> {
+  const budgets = await prisma.budget.findMany({
+    include: { category: true },
+    orderBy: { category: { name: 'asc' } },
+  });
+
+  const now = new Date();
+  const { startDate, endDate, monthCountForBudget: requestedMonthCount } = await resolveBudgetPeriod(periodParam, now);
+  let monthCountForBudget = requestedMonthCount;
 
   if (monthCountForBudget < 1) monthCountForBudget = 1;
 

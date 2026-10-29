@@ -1,9 +1,9 @@
 import { useEffect } from "react";
 import Lenis from "lenis";
 
-export function SmoothScroll({ children }: { children: React.ReactNode }) {
+export function SmoothScroll({ children }: Readonly<{ children: React.ReactNode }>) {
   useEffect(() => {
-    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const prefersReducedMotion = globalThis.matchMedia('(prefers-reduced-motion: reduce)');
     if (prefersReducedMotion.matches) return;
     // Small offset used by this exponential ease-out variant so the curve
     // reliably reaches 1 when clamped at the end of the animation.

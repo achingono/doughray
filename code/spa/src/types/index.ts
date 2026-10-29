@@ -1,5 +1,3 @@
-export type DateString = string; // ISO 8601 format (e.g., "2024-01-15T00:00:00.000Z")
-
 export type FilterPeriod = 'all' | '3' | '6' | '12' | '24';
 
 export interface Account {
@@ -10,7 +8,7 @@ export interface Account {
   currency: string;
   balance: number;
   availableBalance: number | null;
-  balanceDate: DateString;
+  balanceDate: string;
   transactionCount: number;
 }
 
@@ -30,7 +28,7 @@ export interface AccountDetail extends Account {
 
 export interface TrackedTransaction {
   id: string;
-  posted: DateString;
+  posted: string;
   amount: number;
   description: string;
   sourceTransactionId: string;
@@ -183,7 +181,7 @@ export interface CreditCardDetailsResponse extends CreditCardDetails {
 
 export interface TransactionSummary {
   id: string;
-  posted: DateString;
+  posted: string;
   amount: number;
   description: string;
   payee: string | null;
@@ -192,7 +190,7 @@ export interface TransactionSummary {
 
 export interface Transaction {
   id: string;
-  posted: DateString;
+  posted: string;
   amount: number;
   description: string;
   payee: string | null;

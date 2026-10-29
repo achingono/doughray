@@ -378,20 +378,20 @@ export async function upsertAccountLoanDetails(id: string, input: UpsertLoanDeta
     where: { accountId: id },
     update: {
       loanType: input.loanType,
-      originalPrincipal: input.originalPrincipal === undefined ? undefined : input.originalPrincipal,
-      currentPrincipal: input.currentPrincipal === undefined ? undefined : input.currentPrincipal,
-      interestType: input.interestType === undefined ? undefined : input.interestType,
-      interestRateAnnual: input.interestRateAnnual === undefined ? undefined : input.interestRateAnnual,
-      paymentAmount: input.paymentAmount === undefined ? undefined : input.paymentAmount,
-      paymentFrequency: input.paymentFrequency === undefined ? undefined : input.paymentFrequency,
-      termStartDate: input.termStartDate === undefined ? undefined : input.termStartDate,
-      termMaturityDate: input.termMaturityDate === undefined ? undefined : input.termMaturityDate,
-      originalAmortizationMonths: input.originalAmortizationMonths === undefined ? undefined : input.originalAmortizationMonths,
-      remainingAmortizationMonths: input.remainingAmortizationMonths === undefined ? undefined : input.remainingAmortizationMonths,
-      renewalDate: input.renewalDate === undefined ? undefined : input.renewalDate,
-      notes: input.notes === undefined ? undefined : input.notes,
-      lastVerifiedAt: input.lastVerifiedAt === undefined ? undefined : input.lastVerifiedAt,
-      source: input.source === undefined ? undefined : input.source,
+      originalPrincipal: input.originalPrincipal,
+      currentPrincipal: input.currentPrincipal,
+      interestType: input.interestType,
+      interestRateAnnual: input.interestRateAnnual,
+      paymentAmount: input.paymentAmount,
+      paymentFrequency: input.paymentFrequency,
+      termStartDate: input.termStartDate,
+      termMaturityDate: input.termMaturityDate,
+      originalAmortizationMonths: input.originalAmortizationMonths,
+      remainingAmortizationMonths: input.remainingAmortizationMonths,
+      renewalDate: input.renewalDate,
+      notes: input.notes,
+      lastVerifiedAt: input.lastVerifiedAt,
+      source: input.source,
       updatedBy: 'system',
     },
     create: {
@@ -424,7 +424,7 @@ export async function getAccountRegisteredDetails(id: string) {
     select: { id: true, registeredDetails: true },
   });
 
-  if (!account || !account.registeredDetails) {
+  if (!account?.registeredDetails) {
     return null;
   }
 
@@ -493,18 +493,18 @@ export async function upsertAccountRegisteredDetails(id: string, input: UpsertRe
     where: { accountId: id },
     update: {
       registrationType: input.registrationType,
-      annualContributionLimit: input.annualContributionLimit === undefined ? undefined : input.annualContributionLimit,
-      totalContributionRoom: input.totalContributionRoom === undefined ? undefined : input.totalContributionRoom,
-      contributedThisYear: input.contributedThisYear === undefined ? undefined : input.contributedThisYear,
-      unusedCarryforward: input.unusedCarryforward === undefined ? undefined : input.unusedCarryforward,
-      beneficiaryName: input.beneficiaryName === undefined ? undefined : input.beneficiaryName,
-      beneficiaryDateOfBirth: input.beneficiaryDateOfBirth === undefined ? undefined : input.beneficiaryDateOfBirth,
-      grantRoomAvailable: input.grantRoomAvailable === undefined ? undefined : input.grantRoomAvailable,
-      grantsReceived: input.grantsReceived === undefined ? undefined : input.grantsReceived,
-      subscriptionLimit: input.subscriptionLimit === undefined ? undefined : input.subscriptionLimit,
-      verificationSource: input.verificationSource === undefined ? undefined : input.verificationSource,
+      annualContributionLimit: input.annualContributionLimit,
+      totalContributionRoom: input.totalContributionRoom,
+      contributedThisYear: input.contributedThisYear,
+      unusedCarryforward: input.unusedCarryforward,
+      beneficiaryName: input.beneficiaryName,
+      beneficiaryDateOfBirth: input.beneficiaryDateOfBirth,
+      grantRoomAvailable: input.grantRoomAvailable,
+      grantsReceived: input.grantsReceived,
+      subscriptionLimit: input.subscriptionLimit,
+      verificationSource: input.verificationSource,
       lastVerifiedAt: input.lastVerifiedAt,
-      notes: input.notes === undefined ? undefined : input.notes,
+      notes: input.notes,
     },
     create: {
       accountId: id,
@@ -533,7 +533,7 @@ export async function getAccountCreditCardDetails(id: string) {
     select: { id: true, creditCardDetails: true },
   });
 
-  if (!account || !account.creditCardDetails) {
+  if (!account?.creditCardDetails) {
     return null;
   }
 
@@ -583,18 +583,18 @@ export async function upsertAccountCreditCardDetails(id: string, input: UpsertCr
       currentUtilization: input.currentUtilization,
       annualPercentageRate: input.annualPercentageRate,
       minimumPaymentDueDate: input.minimumPaymentDueDate,
-      lastStatementBalance: input.lastStatementBalance === undefined ? undefined : input.lastStatementBalance,
-      lastStatementDate: input.lastStatementDate === undefined ? undefined : input.lastStatementDate,
-      hasAnnualFee: input.hasAnnualFee === undefined ? undefined : input.hasAnnualFee,
-      annualFeeAmount: input.annualFeeAmount === undefined ? undefined : input.annualFeeAmount,
-      rewardsProgram: input.rewardsProgram === undefined ? undefined : input.rewardsProgram,
-      rewardsRate: input.rewardsRate === undefined ? undefined : input.rewardsRate,
-      rewardsRedeemedThisYear: input.rewardsRedeemedThisYear === undefined ? undefined : input.rewardsRedeemedThisYear,
-      issuingBank: input.issuingBank === undefined ? undefined : input.issuingBank,
-      cardType: input.cardType === undefined ? undefined : input.cardType,
-      verificationSource: input.verificationSource === undefined ? undefined : input.verificationSource,
+      lastStatementBalance: input.lastStatementBalance,
+      lastStatementDate: input.lastStatementDate,
+      hasAnnualFee: input.hasAnnualFee,
+      annualFeeAmount: input.annualFeeAmount,
+      rewardsProgram: input.rewardsProgram,
+      rewardsRate: input.rewardsRate,
+      rewardsRedeemedThisYear: input.rewardsRedeemedThisYear,
+      issuingBank: input.issuingBank,
+      cardType: input.cardType,
+      verificationSource: input.verificationSource,
       lastVerifiedAt: input.lastVerifiedAt,
-      notes: input.notes === undefined ? undefined : input.notes,
+      notes: input.notes,
     },
     create: {
       accountId: id,

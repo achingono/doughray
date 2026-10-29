@@ -304,7 +304,7 @@ export function ReportsPage() {
   };
 
   const handleDeleteReport = async (reportId: string) => {
-    const confirmed = window.confirm("Delete this report permanently?");
+    const confirmed = globalThis.confirm("Delete this report permanently?");
     if (!confirmed) return;
 
     setDeletingReportId(reportId);

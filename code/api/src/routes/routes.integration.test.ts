@@ -655,7 +655,7 @@ describe('API route integration', () => {
   });
 
   it('rejects POST /api/accounts with non-liability account types', async () => {
-    await request(app)
+    const response = await request(app)
       .post('/api/accounts')
       .send({
         name: 'Checking Account',
@@ -663,38 +663,43 @@ describe('API route integration', () => {
         balance: 1000,
       })
       .expect(400);
+
+    expect(response.body.error).toBeDefined();
   });
 
   it('validates POST /api/accounts request payload', async () => {
     // Missing required name field
-    await request(app)
+    const missingName = await request(app)
       .post('/api/accounts')
       .send({
         type: 'CREDIT_CARD',
         balance: 1000,
       })
       .expect(400);
+    expect(missingName.body.error).toBeDefined();
 
     // Missing required type field
-    await request(app)
+    const missingType = await request(app)
       .post('/api/accounts')
       .send({
         name: 'Account',
         balance: 1000,
       })
       .expect(400);
+    expect(missingType.body.error).toBeDefined();
 
     // Missing required balance field
-    await request(app)
+    const missingBalance = await request(app)
       .post('/api/accounts')
       .send({
         name: 'Account',
         type: 'LOAN',
       })
       .expect(400);
+    expect(missingBalance.body.error).toBeDefined();
 
     // Invalid type enum value
-    await request(app)
+    const invalidType = await request(app)
       .post('/api/accounts')
       .send({
         name: 'Account',
@@ -702,9 +707,10 @@ describe('API route integration', () => {
         balance: 1000,
       })
       .expect(400);
+    expect(invalidType.body.error).toBeDefined();
 
     // loanDetails term dates must be in chronological order
-    await request(app)
+    const outOfOrderDates = await request(app)
       .post('/api/accounts')
       .send({
         name: 'Mortgage Account',
@@ -717,5 +723,6 @@ describe('API route integration', () => {
         },
       })
       .expect(400);
+    expect(outOfOrderDates.body.error).toBeDefined();
   });
 });

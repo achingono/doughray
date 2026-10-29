@@ -153,8 +153,9 @@ export async function updateRule(ruleId: string, input: Partial<LoanTransactionR
   }
 
   const effectiveRuleType = input.ruleType ?? existing.ruleType;
-  const effectiveCategoryId = input.categoryId !== undefined ? input.categoryId : existing.categoryId;
-  const effectiveNormalizedPayee = input.normalizedPayee !== undefined ? input.normalizedPayee : existing.normalizedPayee;
+  // Prefer missing-input fallbacks written as positive conditions.
+  const effectiveCategoryId = input.categoryId === undefined ? existing.categoryId : input.categoryId;
+  const effectiveNormalizedPayee = input.normalizedPayee === undefined ? existing.normalizedPayee : input.normalizedPayee;
 
   const updateData: any = {};
   if (input.ruleType !== undefined) updateData.ruleType = input.ruleType;
@@ -285,7 +286,7 @@ export async function runTrackingForAccount(accountId: string): Promise<number> 
         ? r.categoryId === tx.categoryId
         : r.normalizedPayee &&
           (tx.description.toLowerCase().includes(r.normalizedPayee.toLowerCase()) ||
-            (tx.payee && tx.payee.toLowerCase().includes(r.normalizedPayee.toLowerCase())))
+            tx.payee?.toLowerCase().includes(r.normalizedPayee.toLowerCase()))
     );
 
     if (!matchingRule) {

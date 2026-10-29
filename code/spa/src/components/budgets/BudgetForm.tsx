@@ -126,7 +126,7 @@ export function BudgetForm({ open, onClose, onSubmit, budget }: Readonly<BudgetF
 
           <div className="space-y-2">
             <Label>Period</Label>
-            <Select value={period} onValueChange={(v) => setValue('period', v as any, { shouldValidate: true })}>
+            <Select value={period} onValueChange={(v) => setValue('period', v as BudgetFormValues['period'], { shouldValidate: true })}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>

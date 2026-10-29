@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type ParamsDictionary } from 'express';
 import { z, ZodError } from 'zod';
 import multer from 'multer';
 import { getTransactions, getTransactionFilterCategories, updateTransactionCategory } from '../services/transaction.service';
@@ -60,9 +60,9 @@ const recategorizePreviewQuerySchema = z.object({
   scope: recategorizeScopeSchema.default('all-past'),
 });
 
-router.get('/', validate(querySchema, 'query'), async (req, res, next) => {
+router.get<ParamsDictionary, any, any, z.infer<typeof querySchema>>('/', validate(querySchema, 'query'), async (req, res, next) => {
   try {
-    const { page, limit, startDate, endDate, ...rest } = req.query as any;
+    const { page, limit, startDate, endDate, ...rest } = req.query;
     const result = await getTransactions(
       {
         ...rest,
@@ -78,11 +78,12 @@ router.get('/', validate(querySchema, 'query'), async (req, res, next) => {
   }
 });
 
-router.get('/filter-categories', validate(filterCategoryQuerySchema, 'query'), async (req, res, next) => {
+router.get<ParamsDictionary, any, any, z.infer<typeof filterCategoryQuerySchema>>('/filter-categories', validate(filterCategoryQuerySchema, 'query'), async (req, res, next) => {
   try {
-    const { startDate, endDate, ...rest } = req.query as any;
+    const { accountId, search, startDate, endDate } = req.query;
     const categories = await getTransactionFilterCategories({
-      ...rest,
+      accountId,
+      search,
       startDate: startDate ? new Date(startDate) : undefined,
       endDate: endDate ? new Date(endDate) : undefined,
     });

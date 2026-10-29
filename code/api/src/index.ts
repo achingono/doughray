@@ -16,6 +16,8 @@ import loanTransactionRoutes from './routes/loan-transactions';
 import { seedDefaultCategoriesOnStartup } from './lib/seed-categories';
 
 const app = express();
+// Avoid disclosing the framework version in the `x-powered-by` response header.
+app.disable('x-powered-by');
 const PORT = Number.parseInt(process.env.API_PORT || '3000', 10);
 const corsOrigin = process.env.CORS_ORIGIN || 'http://localhost';
 const contentSecurityPolicy = [
