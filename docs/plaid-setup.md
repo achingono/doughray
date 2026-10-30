@@ -13,7 +13,9 @@ BANK_TOKEN_ENCRYPTION_KEY_VERSION=1
 OWNER_PASSWORD_HASH=<scrypt-hash>
 ```
 
-Generate an encryption key with `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"`. Save it securely and back it up separately from the database. Changing or losing the key without re-encrypting the stored bank tokens prevents access to those connections. Key rotation tooling is not yet implemented.
+Generate an encryption key with `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"`. Save it securely and back it up separately from the database. Changing or losing the key without re-encrypting the stored bank tokens prevents access to those connections.
+
+To rotate a key, first back up the database and both keys securely. Stop **all** API and worker processes, including other instances; keep PostgreSQL running. From `code`, set `DATABASE_URL` to that database's host-accessible URL and set `BANK_TOKEN_ENCRYPTION_KEY` and `BANK_TOKEN_ENCRYPTION_KEY_VERSION` to the current values. Set `BANK_TOKEN_NEW_ENCRYPTION_KEY` to a different 32-byte key and `BANK_TOKEN_NEW_ENCRYPTION_KEY_VERSION` to a higher integer, then run `npm run bank:rotate-keys`. Supply secrets through environment variables rather than command-line arguments. The command rotates connection tokens and Link recovery tokens in one transaction and rolls back on any invalid or unexpected secret. After success, update the application's `BANK_TOKEN_ENCRYPTION_KEY` and `BANK_TOKEN_ENCRYPTION_KEY_VERSION` to the new values before restarting every API and worker process. Retain the previous key with the old database backup. Never restart an old-key process during or after rotation; it could write ciphertext with the wrong key.
 
 To generate the owner password hash without placing the password in shell history, run from the repository root in Bash:
 
