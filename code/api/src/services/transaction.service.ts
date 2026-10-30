@@ -9,8 +9,9 @@ export interface TransactionListItem {
   payee: string | null;
   memo: string | null;
   isReviewed: boolean;
+  status: 'POSTED' | 'PENDING' | 'REMOVED' | 'SUPERSEDED';
   categoryRuleId: string | null;
-  account: { id: string; name: string; institution: string | null };
+  account: { id: string; name: string; institution: string | null; currency: string };
   category: { id: string; name: string; icon: string | null; color: string | null } | null;
 }
 
@@ -19,7 +20,7 @@ export async function getTransactions(
   page: number = 1,
   limit: number = 50
 ): Promise<PaginatedResponse<TransactionListItem>> {
-  const where: any = {};
+  const where: any = { status: filters.status ?? 'POSTED' };
 
   if (filters.accountId) where.accountId = filters.accountId;
   if (filters.categoryId === '__uncategorized') where.categoryId = null;
@@ -41,7 +42,7 @@ export async function getTransactions(
     prisma.transaction.findMany({
       where,
       include: {
-        account: { select: { id: true, name: true, institution: true } },
+        account: { select: { id: true, name: true, institution: true, currency: true } },
         category: { select: { id: true, name: true, icon: true, color: true } },
       },
       orderBy: { posted: 'desc' },
@@ -60,6 +61,7 @@ export async function getTransactions(
       payee: t.payee,
       memo: t.memo,
       isReviewed: t.isReviewed,
+      status: t.status,
       categoryRuleId: t.categoryRuleId,
       account: t.account,
       category: t.category,
@@ -74,7 +76,7 @@ export async function getTransactions(
 }
 
 export async function getTransactionFilterCategories(filters: Omit<TransactionFilters, 'categoryId'>) {
-  const where: any = {};
+  const where: any = { status: filters.status ?? 'POSTED' };
 
   if (filters.accountId) where.accountId = filters.accountId;
   if (filters.startDate || filters.endDate) {
@@ -138,7 +140,7 @@ export async function getTransactionFilterCategories(filters: Omit<TransactionFi
 export async function updateTransactionCategory(id: string, categoryId: string) {
   return prisma.transaction.update({
     where: { id },
-    data: { categoryId, isReviewed: true, categoryRuleId: null },
+    data: { categoryId, isReviewed: true, categoryRuleId: null, categoryOwnership: 'USER' },
     include: {
       category: { select: { id: true, name: true, icon: true, color: true } },
     },

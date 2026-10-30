@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { formatCurrency, formatDate } from '@/lib/formatters';
+import { formatCurrency, formatCalendarDate } from '@/lib/formatters';
 
 interface RecategorizeDialogProps {
   open: boolean;
@@ -189,7 +189,7 @@ export function RecategorizeDialog({ open, transaction, categories, onClose, onA
           <DialogTitle>Recategorize Transaction</DialogTitle>
           <DialogDescription>
             {transaction
-              ? `${transaction.description} • ${formatCurrency(transaction.amount)} • ${formatDate(transaction.posted)}`
+              ? `${transaction.description} • ${formatCurrency(transaction.amount, transaction.account.currency)} • ${formatCalendarDate(transaction.posted)}`
               : 'Update category for this transaction and matching recurring instances.'}
           </DialogDescription>
         </DialogHeader>

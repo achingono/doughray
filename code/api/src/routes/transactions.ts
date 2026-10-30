@@ -1,4 +1,4 @@
-import { Router, type ParamsDictionary } from 'express';
+import { Router } from 'express';
 import { z, ZodError } from 'zod';
 import multer from 'multer';
 import { getTransactions, getTransactionFilterCategories, updateTransactionCategory } from '../services/transaction.service';
@@ -14,6 +14,7 @@ const upload = multer({
 });
 
 const querySchema = z.object({
+  status: z.enum(['POSTED', 'PENDING']).optional(),
   accountId: z.string().optional(),
   categoryId: z.string().optional(),
   startDate: z.string().optional(),
@@ -24,6 +25,7 @@ const querySchema = z.object({
 });
 
 const filterCategoryQuerySchema = z.object({
+  status: z.enum(['POSTED', 'PENDING']).optional(),
   accountId: z.string().optional(),
   startDate: z.string().optional(),
   endDate: z.string().optional(),
@@ -60,9 +62,9 @@ const recategorizePreviewQuerySchema = z.object({
   scope: recategorizeScopeSchema.default('all-past'),
 });
 
-router.get<ParamsDictionary, any, any, z.infer<typeof querySchema>>('/', validate(querySchema, 'query'), async (req, res, next) => {
+router.get('/', validate(querySchema, 'query'), async (req, res, next) => {
   try {
-    const { page, limit, startDate, endDate, ...rest } = req.query;
+    const { page, limit, startDate, endDate, ...rest } = req.query as unknown as z.infer<typeof querySchema>;
     const result = await getTransactions(
       {
         ...rest,
@@ -78,11 +80,12 @@ router.get<ParamsDictionary, any, any, z.infer<typeof querySchema>>('/', validat
   }
 });
 
-router.get<ParamsDictionary, any, any, z.infer<typeof filterCategoryQuerySchema>>('/filter-categories', validate(filterCategoryQuerySchema, 'query'), async (req, res, next) => {
+router.get('/filter-categories', validate(filterCategoryQuerySchema, 'query'), async (req, res, next) => {
   try {
-    const { accountId, search, startDate, endDate } = req.query;
+    const { accountId, search, startDate, endDate, status } = req.query as unknown as z.infer<typeof filterCategoryQuerySchema>;
     const categories = await getTransactionFilterCategories({
       accountId,
+      status,
       search,
       startDate: startDate ? new Date(startDate) : undefined,
       endDate: endDate ? new Date(endDate) : undefined,

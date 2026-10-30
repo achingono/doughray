@@ -2,8 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { prismaMock } = vi.hoisted(() => ({
   prismaMock: {
+    $transaction: vi.fn(),
+    $queryRaw: vi.fn(),
     account: {
       findMany: vi.fn(),
+      findUnique: vi.fn(),
       updateMany: vi.fn(),
       update: vi.fn(),
     },
@@ -28,6 +31,9 @@ import { backfillTransactions } from './backfill-transactions';
 describe('backfillTransactions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    prismaMock.$transaction.mockImplementation(async (fn) => fn(prismaMock));
+    prismaMock.$queryRaw.mockResolvedValue([]);
+    prismaMock.account.findUnique.mockResolvedValue({ ingestionState: 'ACTIVE', accountSources: [] });
   });
 
   it('marks non-SimpleFin accounts as complete and skips fetching them', async () => {
@@ -60,7 +66,7 @@ describe('backfillTransactions', () => {
     expect(simplefinMock.fetchTransactionsForAccount).toHaveBeenCalledWith('ACT-123', expect.any(String), expect.any(String));
     expect(prismaMock.account.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: { in: ['a-excel'] } },
+        where: expect.objectContaining({ id: { in: ['a-excel'] }, ingestionState: 'ACTIVE' }),
         data: expect.objectContaining({
           backfillCursor: null,
           backfillComplete: true,

@@ -48,6 +48,16 @@ function chunkArray<T>(items: T[], size: number): T[][] {
 }
 
 export async function backfillHistoricalSnapshots(): Promise<void> {
+  // Plaid coverage varies; reconstructing older balances without verified
+  // coverage would fabricate history.
+  const unsafeHistory = await prisma.account.count({ where: { isActive: true, OR: [
+    { ingestionState: 'MIGRATING' },
+    { accountSources: { some: { status: 'ACTIVE', connection: { provider: 'PLAID' } } } },
+  ] } });
+  if (unsafeHistory > 0) {
+    console.log('[SnapshotBackfill] Skipping reconstruction while Plaid history or migration is present.');
+    return;
+  }
   const days = parseBackfillDays();
   const today = normalizeDate(new Date());
   const startDate = new Date(today);
@@ -74,6 +84,7 @@ export async function backfillHistoricalSnapshots(): Promise<void> {
 
   const txRows = await prisma.transaction.findMany({
     where: {
+      status: 'POSTED',
       accountId: { in: accounts.map((a) => a.id) },
       posted: { gte: startDate },
     },
@@ -156,26 +167,13 @@ export async function backfillHistoricalSnapshots(): Promise<void> {
   }
 
   await prisma.$transaction(async (tx) => {
-    await tx.accountNetWorthSnapshot.deleteMany({
-      where: {
-        accountId: { in: accounts.map((a) => a.id) },
-        date: { gte: startDate, lte: today },
-      },
-    });
-
-    await tx.netWorthSnapshot.deleteMany({
-      where: {
-        date: { gte: startDate, lte: today },
-      },
-    });
-
-    // Keep batch sizes reasonable for DB parameter limits.
+    // Preserve existing observed snapshots; only fill missing dates.
     for (const chunk of chunkArray(accountSnapshotRows, 1000)) {
-      await tx.accountNetWorthSnapshot.createMany({ data: chunk });
+      await tx.accountNetWorthSnapshot.createMany({ data: chunk, skipDuplicates: true });
     }
 
     for (const chunk of chunkArray(netWorthSnapshotRows, 500)) {
-      await tx.netWorthSnapshot.createMany({ data: chunk });
+      await tx.netWorthSnapshot.createMany({ data: chunk, skipDuplicates: true });
     }
   });
 

@@ -1,6 +1,7 @@
 import cron from 'node-cron';
-import { importTransactions } from './jobs/import-transactions';
-import { backfillTransactions } from './jobs/backfill-transactions';
+import { enqueueBankSync } from '@doughray/shared';
+import prisma from './lib/prisma';
+import { startSyncQueue } from './jobs/sync-queue';
 import { categorizeTransactions } from './jobs/categorize-transactions';
 import { generateMonthlyReport, takeNetWorthSnapshot } from './jobs/generate-reports';
 import { valuateAssets } from './jobs/valuate-assets';
@@ -12,15 +13,23 @@ console.log('[Worker] Starting cron scheduler...');
 // Keep strong references to scheduled tasks so cron timers are not
 // garbage-collected and the worker process remains alive between runs.
 const scheduledTasks = [] as ReturnType<typeof cron.schedule>[];
+startSyncQueue();
 
 // Import transactions every 6 hours
 scheduledTasks.push(cron.schedule('0 */6 * * *', async () => {
   console.log('[Worker] Running: Import Transactions');
   try {
-    await importTransactions();
+    await enqueueBankSync(prisma, { jobType: 'SIMPLEFIN_IMPORT', trigger: 'SCHEDULED' });
   } catch (err) {
     console.error('[Worker] Import job failed:', err);
   }
+}));
+
+scheduledTasks.push(cron.schedule('0 */6 * * *', async () => {
+  try {
+    const connections = await prisma.bankConnection.findMany({ where: { provider: 'PLAID', status: 'HEALTHY', pausedAt: null }, select: { id: true } });
+    for (const connection of connections) await enqueueBankSync(prisma, { jobType: 'CONNECTION_SYNC', trigger: 'SCHEDULED', connectionId: connection.id });
+  } catch (err) { console.error('[Worker] Failed to schedule bank sync:', err); }
 }));
 
 // Categorize transactions 15 minutes after each import
@@ -47,7 +56,7 @@ scheduledTasks.push(cron.schedule('0 6 1 * *', async () => {
 scheduledTasks.push(cron.schedule('30 */6 * * *', async () => {
   console.log('[Worker] Running: Backfill Transactions');
   try {
-    await backfillTransactions();
+    await enqueueBankSync(prisma, { jobType: 'SIMPLEFIN_BACKFILL', trigger: 'SCHEDULED' });
   } catch (err) {
     console.error('[Worker] Backfill job failed:', err);
   }
@@ -97,9 +106,8 @@ scheduledTasks.push(cron.schedule('0 3 * * 0', async () => {
 setTimeout(async () => {
   console.log('[Worker] Running initial import...');
   try {
-    await importTransactions();
-    await backfillTransactions();
-    await categorizeTransactions();
+    await enqueueBankSync(prisma, { jobType: 'SIMPLEFIN_IMPORT', trigger: 'STARTUP' });
+    await enqueueBankSync(prisma, { jobType: 'SIMPLEFIN_BACKFILL', trigger: 'STARTUP' });
     await backfillHistoricalSnapshots();
     await takeNetWorthSnapshot();
     await updateGoalProgress();

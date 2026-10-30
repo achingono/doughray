@@ -22,7 +22,8 @@ async function markSkippedAccountsComplete(skippedAccounts: Array<{ id: string; 
       .join(', ')}`,
   );
   await prisma.account.updateMany({
-    where: { id: { in: skippedAccounts.map((account) => account.id) } },
+    where: { id: { in: skippedAccounts.map((account) => account.id) }, ingestionState: 'ACTIVE',
+      accountSources: { none: { status: 'ACTIVE', connection: { provider: 'PLAID' } } } },
     data: {
       backfillCursor: null,
       backfillComplete: true,
@@ -53,8 +54,16 @@ async function backfillSingleAccount(account: {
   }
 
   const accountTransactions = result.transactions.filter((tx) => tx.accountId === account.externalId);
-  for (const tx of accountTransactions) {
-    await prisma.transaction.upsert({
+  const nextCursor = shiftDays(windowStart, -1);
+  const isExhausted = accountTransactions.length === 0 || nextCursor.getUTCFullYear() < 1970;
+  const applied = await prisma.$transaction(async (db) => {
+    await db.$queryRaw`SELECT id FROM "Account" WHERE id = ${account.id} FOR UPDATE`;
+    const current = await db.account.findUnique({ where: { id: account.id }, select: {
+      ingestionState: true, accountSources: { where: { status: 'ACTIVE', connection: { provider: 'PLAID' } }, select: { id: true } },
+    } });
+    if (!current || current.ingestionState !== 'ACTIVE' || current.accountSources.length > 0) return false;
+    for (const tx of accountTransactions) {
+    await db.transaction.upsert({
       where: { externalId: tx.id },
       update: {
         amount: Number.parseFloat(tx.amount),
@@ -72,11 +81,9 @@ async function backfillSingleAccount(account: {
         memo: tx.memo || null,
       },
     });
-  }
+    }
 
-  const nextCursor = shiftDays(windowStart, -1);
-  const isExhausted = accountTransactions.length === 0 || nextCursor.getUTCFullYear() < 1970;
-  await prisma.account.update({
+  await db.account.update({
     where: { id: account.id },
     data: {
       backfillCursor: isExhausted ? null : nextCursor,
@@ -84,6 +91,9 @@ async function backfillSingleAccount(account: {
       backfillUpdatedAt: new Date(),
     },
   });
+  return true;
+  }, { timeout: 120000 });
+  if (!applied) return;
 
   if (isExhausted) {
     console.log(`[Backfill] ${account.name}: complete`);
@@ -98,7 +108,8 @@ export async function backfillTransactions(): Promise<void> {
   console.log('[Backfill] Starting account backfill run...');
 
   const pendingAccounts = await prisma.account.findMany({
-    where: { isActive: true, backfillComplete: false },
+    where: { isActive: true, backfillComplete: false, ingestionState: 'ACTIVE',
+      accountSources: { none: { status: 'ACTIVE', connection: { provider: 'PLAID' } } } },
     select: {
       id: true,
       externalId: true,

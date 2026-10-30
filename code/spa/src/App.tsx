@@ -9,10 +9,12 @@ import { BudgetsPage } from "./pages/BudgetsPage";
 import { GoalsPage } from "./pages/GoalsPage";
 import { ReportsPage } from "./pages/ReportsPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { AuthGate } from "./components/auth/AuthGate";
 
 export function App() {
   return (
     <BrowserRouter>
+      <AuthGate>
       <Routes>
         <Route element={<AppLayout />}>
           <Route path="/" element={<DashboardPage />} />
@@ -23,9 +25,11 @@ export function App() {
           <Route path="/goals" element={<GoalsPage />} />
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/plaid-oauth" element={<SettingsPage />} />
         </Route>
       </Routes>
       <Toaster />
+      </AuthGate>
     </BrowserRouter>
   );
 }

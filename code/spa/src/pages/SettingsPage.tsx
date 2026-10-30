@@ -7,6 +7,7 @@ import { RefreshCw, CheckCircle, XCircle, Clock, Loader2, Trash2 } from "lucide-
 import { api } from "@/lib/api";
 import { formatDate } from "@/lib/formatters";
 import type { SyncStatus, Category, CategoryRule } from "@/types";
+import { BankConnections } from '@/components/banks/BankConnections';
 
 export function SettingsPage() {
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
@@ -14,6 +15,7 @@ export function SettingsPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [categoryRules, setCategoryRules] = useState<CategoryRule[]>([]);
   const [syncing, setSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState('');
 
   useEffect(() => {
     Promise.all([api.getSyncStatus(), api.getSyncHistory(), api.getCategories(), api.getCategoryRules(1, 100)])
@@ -28,10 +30,22 @@ export function SettingsPage() {
 
   const handleSync = async () => {
     setSyncing(true);
+    setSyncMessage('Sync queued.');
     try {
-      await api.triggerSync();
+      const result = await api.triggerSync();
+      for (let i = 0; i < 90; i++) {
+        const job = (await api.getSyncJob(result.data.jobId)).data;
+        if (job.status === 'FAILED' || job.status === 'CANCELLED') throw new Error(job.errorMessage || 'Sync did not complete.');
+        if (job.status === 'SUCCEEDED') {
+          const [status, history] = await Promise.all([api.getSyncStatus(), api.getSyncHistory()]);
+          setSyncStatus(status.data); setSyncHistory(history.data); setSyncMessage('Sync complete.');
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      }
+      setSyncMessage('Sync is still running. Check the status again later.');
     } catch (err) {
-      console.error(err);
+      setSyncMessage(err instanceof Error ? err.message : 'Sync failed.');
     } finally {
       setSyncing(false);
     }
@@ -65,6 +79,8 @@ export function SettingsPage() {
     <div className="space-y-6 max-w-4xl">
       <h2 className="text-2xl font-bold tracking-tight">Settings</h2>
 
+      <BankConnections />
+
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
@@ -79,6 +95,7 @@ export function SettingsPage() {
           </div>
         </CardHeader>
         <CardContent>
+          {syncMessage && <p role="status" className="mb-3 text-sm">{syncMessage}</p>}
           {syncStatus ? (
             <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
               {statusIcon(syncStatus.status)}

@@ -52,83 +52,60 @@ export async function importTransactions(): Promise<{ accountCount: number; tran
       console.warn(`[Import] SimpleFin returned warnings: ${transactionResult.errors.join(' | ')}`);
     }
 
-    const accountExternalIds = new Set(accountResult.accounts.map((account) => account.id));
-
-    for (const sfAccount of accountResult.accounts) {
-      await prisma.account.upsert({
-        where: { externalId: sfAccount.id },
-        update: {
-          name: sfAccount.name,
-          balance: Number.parseFloat(sfAccount.balance),
-          availableBalance: sfAccount['available-balance'] ? Number.parseFloat(sfAccount['available-balance']) : null,
-          balanceDate: new Date(sfAccount['balance-date'] * 1000),
-          institution: sfAccount.org?.name || null,
-          institutionDomain: sfAccount.org?.domain || null,
-        },
-        create: {
-          externalId: sfAccount.id,
-          name: sfAccount.name,
-          currency: sfAccount.currency,
-          type: inferAccountType(sfAccount) as any,
-          balance: Number.parseFloat(sfAccount.balance),
-          availableBalance: sfAccount['available-balance'] ? Number.parseFloat(sfAccount['available-balance']) : null,
-          balanceDate: new Date(sfAccount['balance-date'] * 1000),
-          institution: sfAccount.org?.name || null,
-          institutionDomain: sfAccount.org?.domain || null,
-        },
-      });
-    }
-
     let totalTransactions = 0;
-
-    for (const sfTx of transactionResult.transactions) {
-      if (!accountExternalIds.has(sfTx.accountId)) {
-        console.warn(`[Import] Skipping transaction ${sfTx.id}: account ${sfTx.accountId} not found`);
-        continue;
-      }
-
-      const account = await prisma.account.findUnique({
-        where: { externalId: sfTx.accountId },
-        select: { id: true },
-      });
-      if (!account) {
-        console.warn(`[Import] Skipping transaction ${sfTx.id}: account ${sfTx.accountId} not available locally`);
-        continue;
-      }
-
-      await prisma.transaction.upsert({
-        where: { externalId: sfTx.id },
-        update: {
-          amount: Number.parseFloat(sfTx.amount),
-          description: sfTx.description,
-          payee: sfTx.payee || null,
-          memo: sfTx.memo || null,
-        },
-        create: {
-          externalId: sfTx.id,
-          accountId: account.id,
-          posted: new Date(sfTx.posted * 1000),
-          amount: Number.parseFloat(sfTx.amount),
-          description: sfTx.description,
-          payee: sfTx.payee || null,
-          memo: sfTx.memo || null,
-        },
-      });
-      totalTransactions++;
+    let totalAccounts = 0;
+    for (const sfAccount of accountResult.accounts) {
+      // Account mapping/cutover takes the same row lock. The old provider can
+      // never publish after the account has entered migration or Plaid authority.
+      const count = await prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM "Account" WHERE "externalId" = ${sfAccount.id} FOR UPDATE`;
+        const existing = await tx.account.findUnique({ where: { externalId: sfAccount.id }, select: {
+          id: true, ingestionState: true, accountSources: { where: { status: 'ACTIVE', connection: { provider: 'PLAID' } }, select: { id: true } },
+        } });
+        if (existing && (existing.ingestionState !== 'ACTIVE' || existing.accountSources.length > 0)) return null;
+        const account = await tx.account.upsert({
+          where: { externalId: sfAccount.id },
+          update: {
+            name: sfAccount.name, balance: Number.parseFloat(sfAccount.balance),
+            availableBalance: sfAccount['available-balance'] ? Number.parseFloat(sfAccount['available-balance']) : null,
+            balanceDate: new Date(sfAccount['balance-date'] * 1000), institution: sfAccount.org?.name || null,
+            institutionDomain: sfAccount.org?.domain || null,
+          },
+          create: {
+            externalId: sfAccount.id, name: sfAccount.name, currency: sfAccount.currency,
+            type: inferAccountType(sfAccount) as any, balance: Number.parseFloat(sfAccount.balance),
+            availableBalance: sfAccount['available-balance'] ? Number.parseFloat(sfAccount['available-balance']) : null,
+            balanceDate: new Date(sfAccount['balance-date'] * 1000), institution: sfAccount.org?.name || null,
+            institutionDomain: sfAccount.org?.domain || null,
+          }, select: { id: true },
+        });
+        let imported = 0;
+        for (const sfTx of transactionResult.transactions!.filter((item) => item.accountId === sfAccount.id)) {
+          await tx.transaction.upsert({
+            where: { externalId: sfTx.id },
+            update: { amount: Number.parseFloat(sfTx.amount), description: sfTx.description, payee: sfTx.payee || null, memo: sfTx.memo || null },
+            create: { externalId: sfTx.id, accountId: account.id, posted: new Date(sfTx.posted * 1000),
+              amount: Number.parseFloat(sfTx.amount), description: sfTx.description, payee: sfTx.payee || null, memo: sfTx.memo || null },
+          });
+          imported++;
+        }
+        return imported;
+      }, { timeout: 120000 });
+      if (count !== null) { totalAccounts++; totalTransactions += count; }
     }
 
     await prisma.syncLog.update({
       where: { id: syncLog.id },
       data: {
         status: 'SUCCESS',
-        accountCount: accountResult.accounts.length,
+        accountCount: totalAccounts,
         transactionCount: totalTransactions,
         completedAt: new Date(),
       },
     });
 
     console.log(`[Import] Imported ${accountResult.accounts.length} accounts, ${totalTransactions} transactions`);
-    return { accountCount: accountResult.accounts.length, transactionCount: totalTransactions };
+    return { accountCount: totalAccounts, transactionCount: totalTransactions };
   } catch (err) {
     await prisma.syncLog.update({
       where: { id: syncLog.id },

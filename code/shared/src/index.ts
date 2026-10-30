@@ -1,5 +1,12 @@
 export { default } from './openai';
 export * from './account-types';
+export * from './bank/config';
+export * from './bank/crypto';
+export * from './bank/normalization';
+export * from './bank/owner-auth';
+export * from './bank/plaid';
+export * from './bank/sync-queue';
+export * from './bank/types';
 export * from './normalize-payee';
 export * from './openai';
 export * from './prisma';

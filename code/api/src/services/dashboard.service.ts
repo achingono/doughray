@@ -29,7 +29,7 @@ export async function getDashboardSummary(accountId?: string): Promise<Dashboard
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
   const monthlyTransactions = await prisma.transaction.findMany({
-    where: { posted: { gte: startOfMonth }, ...(accountId ? { accountId } : {}) },
+    where: { status: 'POSTED', posted: { gte: startOfMonth }, ...(accountId ? { accountId } : {}) },
     include: { category: { select: { name: true, parent: { select: { name: true } } } } },
   });
 
@@ -72,7 +72,7 @@ export async function getTrends(months?: number, accountId?: string): Promise<Tr
   const now = new Date();
 
   const firstTx = await prisma.transaction.findFirst({
-    where: accountId ? { accountId } : undefined,
+    where: { status: 'POSTED', ...(accountId ? { accountId } : {}) },
     orderBy: { posted: 'asc' },
     select: { posted: true },
   });
@@ -97,6 +97,7 @@ export async function getTrends(months?: number, accountId?: string): Promise<Tr
   const lastMonthExclusive = new Date(now.getFullYear(), now.getMonth() + 1, 1);
   const transactions = await prisma.transaction.findMany({
     where: {
+      status: 'POSTED',
       posted: { lt: lastMonthExclusive },
       ...(accountId ? { accountId } : {}),
     },
@@ -109,6 +110,7 @@ export async function getTrends(months?: number, accountId?: string): Promise<Tr
 
 export async function getSpendingByCategory(startDate?: Date, endDate?: Date, accountId?: string) {
   const where: any = {
+    status: 'POSTED',
     amount: { lt: 0 },
   };
 

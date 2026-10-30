@@ -79,8 +79,17 @@ describe('transaction.service', () => {
     expect(prismaMock.transaction.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: 't1' },
-        data: { categoryId: 'c1', isReviewed: true, categoryRuleId: null },
+        data: { categoryId: 'c1', isReviewed: true, categoryRuleId: null, categoryOwnership: 'USER' },
       }),
     );
+  });
+
+  it('lists pending transactions separately from posted transactions', async () => {
+    prismaMock.transaction.findMany.mockResolvedValue([]);
+    prismaMock.transaction.count.mockResolvedValue(0);
+    await getTransactions({ status: 'PENDING' });
+    expect(prismaMock.transaction.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { status: 'PENDING' } }));
+    await getTransactions({});
+    expect(prismaMock.transaction.findMany).toHaveBeenLastCalledWith(expect.objectContaining({ where: { status: 'POSTED' } }));
   });
 });

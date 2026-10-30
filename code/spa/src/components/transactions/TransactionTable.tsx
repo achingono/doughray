@@ -2,7 +2,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { CategoryBadge } from "./CategoryBadge";
-import { formatCurrency, formatDate } from "@/lib/formatters";
+import { formatCurrency, formatCalendarDate } from "@/lib/formatters";
 import type { Transaction } from "@/types";
 
 interface TransactionTableProps {
@@ -36,10 +36,10 @@ export function TransactionTable({ transactions, pagination, onPageChange, onCat
         <TableBody>
           {transactions.map(t => (
             <TableRow key={t.id}>
-              <TableCell className="whitespace-nowrap text-muted-foreground">{formatDate(t.posted)}</TableCell>
+              <TableCell className="whitespace-nowrap text-muted-foreground">{formatCalendarDate(t.posted)}</TableCell>
               <TableCell>
                 <div>
-                  <p className="font-medium">{t.description}</p>
+                  <p className="font-medium">{t.description}{t.status === 'PENDING' && <span className="ml-2 text-xs text-muted-foreground">Pending</span>}</p>
                   {t.payee && <p className="text-xs text-muted-foreground">{t.payee}</p>}
                 </div>
               </TableCell>
@@ -48,7 +48,7 @@ export function TransactionTable({ transactions, pagination, onPageChange, onCat
                 <CategoryBadge category={t.category} onClick={() => onCategoryClick?.(t.id)} />
               </TableCell>
               <TableCell className={`text-right font-medium whitespace-nowrap ${t.amount >= 0 ? 'text-emerald-600' : ''}`}>
-                {t.amount >= 0 ? '+' : ''}{formatCurrency(t.amount)}
+                {t.amount >= 0 ? '+' : ''}{formatCurrency(t.amount, t.account.currency)}
               </TableCell>
             </TableRow>
           ))}

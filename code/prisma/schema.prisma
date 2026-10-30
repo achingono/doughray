@@ -8,151 +8,167 @@ datasource db {
 }
 
 model Account {
-  id                String      @id @default(cuid())
-  externalId        String      @unique
+  id                String                @id @default(cuid())
+  externalId        String                @unique
   name              String
   institution       String?
   institutionDomain String?
-  currency          String      @default("USD")
-  type              AccountType @default(CHECKING)
-  balance           Decimal     @db.Decimal(15, 2)
-  availableBalance  Decimal?    @db.Decimal(15, 2)
+  currency          String                @default("USD")
+  type              AccountType           @default(CHECKING)
+  balance           Decimal               @db.Decimal(15, 2)
+  availableBalance  Decimal?              @db.Decimal(15, 2)
   balanceDate       DateTime
-  isActive          Boolean     @default(true)
+  isActive          Boolean               @default(true)
   backfillCursor    DateTime?
-  backfillComplete  Boolean     @default(false)
+  backfillComplete  Boolean               @default(false)
   backfillUpdatedAt DateTime?
-  createdAt         DateTime    @default(now())
-  updatedAt         DateTime    @updatedAt
+  ingestionState    AccountIngestionState @default(ACTIVE)
+  candidateSourceId String?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
 
-  transactions Transaction[]
-  categoryRules CategoryRule[]
-  goalAccounts GoalAccount[]
-  loanDetails AccountLoanDetails?
-  registeredDetails AccountRegisteredDetails?
-  creditCardDetails AccountCreditCardDetails?
-  netWorthSnapshots AccountNetWorthSnapshot[]
-  assets Asset[]
-  loanTransactionRules LoanTransactionRule[] @relation("LoanTransactionRuleAccount")
-  linkedLoanTransactions LoanTransaction[] @relation("LoanTransactionLinkedAccount")
+  transactions           Transaction[]
+  categoryRules          CategoryRule[]
+  goalAccounts           GoalAccount[]
+  loanDetails            AccountLoanDetails?
+  registeredDetails      AccountRegisteredDetails?
+  creditCardDetails      AccountCreditCardDetails?
+  netWorthSnapshots      AccountNetWorthSnapshot[]
+  assets                 Asset[]
+  loanTransactionRules   LoanTransactionRule[]     @relation("LoanTransactionRuleAccount")
+  linkedLoanTransactions LoanTransaction[]         @relation("LoanTransactionLinkedAccount")
+  accountSources         AccountSource[]
+  candidateSource        AccountSource?            @relation("AccountCandidateSource", fields: [candidateSourceId], references: [id], onDelete: SetNull)
 
   @@index([type])
   @@index([isActive])
 }
 
 model AccountLoanDetails {
-  accountId                    String           @id
-  account                      Account          @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  loanType                     LoanType
-  originalPrincipal            Decimal?         @db.Decimal(15, 2)
-  currentPrincipal             Decimal?         @db.Decimal(15, 2)
-  interestType                 InterestType?
-  interestRateAnnual           Decimal?         @db.Decimal(7, 4)
-  paymentAmount                Decimal?         @db.Decimal(15, 2)
-  paymentFrequency             PaymentFrequency?
-  termStartDate                DateTime?
-  termMaturityDate             DateTime?
-  originalAmortizationMonths   Int?
-  remainingAmortizationMonths  Int?
-  renewalDate                  DateTime?
-  notes                        String?
-  lastVerifiedAt               DateTime?
-  source                       LoanDetailSource @default(USER_ENTERED)
-  updatedBy                    String?
-  createdAt                    DateTime         @default(now())
-  updatedAt                    DateTime         @updatedAt
+  accountId                   String            @id
+  account                     Account           @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  loanType                    LoanType
+  originalPrincipal           Decimal?          @db.Decimal(15, 2)
+  currentPrincipal            Decimal?          @db.Decimal(15, 2)
+  interestType                InterestType?
+  interestRateAnnual          Decimal?          @db.Decimal(7, 4)
+  paymentAmount               Decimal?          @db.Decimal(15, 2)
+  paymentFrequency            PaymentFrequency?
+  termStartDate               DateTime?
+  termMaturityDate            DateTime?
+  originalAmortizationMonths  Int?
+  remainingAmortizationMonths Int?
+  renewalDate                 DateTime?
+  notes                       String?
+  lastVerifiedAt              DateTime?
+  source                      LoanDetailSource  @default(USER_ENTERED)
+  updatedBy                   String?
+  createdAt                   DateTime          @default(now())
+  updatedAt                   DateTime          @updatedAt
 
   @@index([loanType])
 }
 
 model AccountRegisteredDetails {
-  accountId                String                     @id
-  account                  Account                    @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  registrationType         RegistrationType
-  annualContributionLimit  Decimal                    @default(0) @db.Decimal(15, 2)
-  totalContributionRoom    Decimal                    @default(0) @db.Decimal(15, 2)
-  contributedThisYear      Decimal                    @default(0) @db.Decimal(15, 2)
-  unusedCarryforward       Decimal                    @default(0) @db.Decimal(15, 2)
-  beneficiaryName          String?
-  beneficiaryDateOfBirth   DateTime?
-  grantRoomAvailable       Decimal?                   @db.Decimal(15, 2)
-  grantsReceived           Decimal?                   @db.Decimal(15, 2)
-  subscriptionLimit        Decimal?                   @db.Decimal(15, 2)
-  verificationSource       RegistrationVerificationSource @default(USER_ENTERED)
-  lastVerifiedAt           DateTime
-  notes                    String?
-  createdAt                DateTime                   @default(now())
-  updatedAt                DateTime                   @updatedAt
+  accountId               String                         @id
+  account                 Account                        @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  registrationType        RegistrationType
+  annualContributionLimit Decimal                        @default(0) @db.Decimal(15, 2)
+  totalContributionRoom   Decimal                        @default(0) @db.Decimal(15, 2)
+  contributedThisYear     Decimal                        @default(0) @db.Decimal(15, 2)
+  unusedCarryforward      Decimal                        @default(0) @db.Decimal(15, 2)
+  beneficiaryName         String?
+  beneficiaryDateOfBirth  DateTime?
+  grantRoomAvailable      Decimal?                       @db.Decimal(15, 2)
+  grantsReceived          Decimal?                       @db.Decimal(15, 2)
+  subscriptionLimit       Decimal?                       @db.Decimal(15, 2)
+  verificationSource      RegistrationVerificationSource @default(USER_ENTERED)
+  lastVerifiedAt          DateTime
+  notes                   String?
+  createdAt               DateTime                       @default(now())
+  updatedAt               DateTime                       @updatedAt
 
   @@index([registrationType])
   @@index([lastVerifiedAt])
 }
 
 model AccountCreditCardDetails {
-  accountId                String                         @id
-  account                  Account                        @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  creditLimit              Decimal                        @db.Decimal(15, 2)
-  currentUtilization       Decimal                        @db.Decimal(5, 2)
-  annualPercentageRate     Decimal                        @db.Decimal(7, 4)
-  minimumPaymentDueDate    Int
-  lastStatementBalance     Decimal                        @default(0) @db.Decimal(15, 2)
-  lastStatementDate        DateTime?
-  hasAnnualFee             Boolean                        @default(false)
-  annualFeeAmount          Decimal?                       @db.Decimal(15, 2)
-  rewardsProgram           CreditCardRewardsProgram?
-  rewardsRate              Decimal?                       @db.Decimal(8, 4)
-  rewardsRedeemedThisYear  Decimal?                       @db.Decimal(15, 2)
-  issuingBank              String?
-  cardType                 CreditCardType?
-  verificationSource       CreditCardVerificationSource   @default(USER_ENTERED)
-  lastVerifiedAt           DateTime
-  notes                    String?
-  createdAt                DateTime                       @default(now())
-  updatedAt                DateTime                       @updatedAt
+  accountId               String                       @id
+  account                 Account                      @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  creditLimit             Decimal                      @db.Decimal(15, 2)
+  currentUtilization      Decimal                      @db.Decimal(5, 2)
+  annualPercentageRate    Decimal                      @db.Decimal(7, 4)
+  minimumPaymentDueDate   Int
+  lastStatementBalance    Decimal                      @default(0) @db.Decimal(15, 2)
+  lastStatementDate       DateTime?
+  hasAnnualFee            Boolean                      @default(false)
+  annualFeeAmount         Decimal?                     @db.Decimal(15, 2)
+  rewardsProgram          CreditCardRewardsProgram?
+  rewardsRate             Decimal?                     @db.Decimal(8, 4)
+  rewardsRedeemedThisYear Decimal?                     @db.Decimal(15, 2)
+  issuingBank             String?
+  cardType                CreditCardType?
+  verificationSource      CreditCardVerificationSource @default(USER_ENTERED)
+  lastVerifiedAt          DateTime
+  notes                   String?
+  createdAt               DateTime                     @default(now())
+  updatedAt               DateTime                     @updatedAt
 
   @@index([lastVerifiedAt])
   @@index([currentUtilization])
 }
 
 model Transaction {
-  id          String    @id @default(cuid())
-  externalId  String    @unique
-  accountId   String
-  account     Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  posted      DateTime
-  amount      Decimal   @db.Decimal(15, 2)
-  description String
-  payee       String?
-  memo        String?
-  categoryId  String?
-  category    Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  categoryRuleId String?
-  categoryRule CategoryRule? @relation(fields: [categoryRuleId], references: [id], onDelete: SetNull)
-  isReviewed  Boolean   @default(false)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id                       String                       @id @default(cuid())
+  externalId               String                       @unique
+  accountId                String
+  account                  Account                      @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  posted                   DateTime
+  amount                   Decimal                      @db.Decimal(15, 2)
+  description              String
+  payee                    String?
+  memo                     String?
+  categoryId               String?
+  category                 Category?                    @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  categoryRuleId           String?
+  categoryRule             CategoryRule?                @relation(fields: [categoryRuleId], references: [id], onDelete: SetNull)
+  isReviewed               Boolean                      @default(false)
+  status                   TransactionStatus            @default(POSTED)
+  replacementTransactionId String?
+  authorizedDate           DateTime?
+  isoCurrencyCode          String?
+  categoryOwnership        TransactionCategoryOwnership @default(NONE)
+  createdAt                DateTime                     @default(now())
+  updatedAt                DateTime                     @updatedAt
+
+  loanTransactions        LoanTransaction[]        @relation("LoanTransactionSourceTransaction")
+  sources                 TransactionSource[]
+  replacementTransaction  Transaction?             @relation("TransactionReplacement", fields: [replacementTransactionId], references: [id], onDelete: SetNull)
+  supersededBy            Transaction[]            @relation("TransactionReplacement")
+  reconciliationDecisions ReconciliationDecision[] @relation("ReconciliationDecisionPrimaryTransaction")
+  reconciliationSecondary ReconciliationDecision[] @relation("ReconciliationDecisionMatchedTransaction")
 
   @@index([accountId])
   @@index([categoryId])
   @@index([categoryRuleId])
   @@index([posted])
   @@index([accountId, posted])
-
-  loanTransactions LoanTransaction[] @relation("LoanTransactionSourceTransaction")
+  @@index([status])
+  @@index([accountId, status, posted])
 }
 
 model Category {
-  id       String  @id @default(cuid())
-  name     String  @unique
+  id       String     @id @default(cuid())
+  name     String     @unique
   icon     String?
   color    String?
   parentId String?
   parent   Category?  @relation("CategoryTree", fields: [parentId], references: [id])
   children Category[] @relation("CategoryTree")
 
-  transactions Transaction[]
-  categoryRules CategoryRule[]
-  budgets      Budget[]
+  transactions         Transaction[]
+  categoryRules        CategoryRule[]
+  budgets              Budget[]
   loanTransactionRules LoanTransactionRule[] @relation("LoanTransactionRuleCategory")
 
   createdAt DateTime @default(now())
@@ -161,15 +177,15 @@ model Category {
 }
 
 model CategoryRule {
-  id                  String    @id @default(cuid())
+  id                  String   @id @default(cuid())
   normalizedPayee     String
   categoryId          String
-  category            Category  @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  category            Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
   accountId           String?
-  account             Account?  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  account             Account? @relation(fields: [accountId], references: [id], onDelete: Cascade)
   sourceTransactionId String
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
   transactions Transaction[]
 
@@ -218,30 +234,28 @@ model SyncLog {
 }
 
 model NetWorthSnapshot {
-  id          String   @id @default(cuid())
-  date        DateTime @unique
-  totalAssets Decimal  @db.Decimal(15, 2)
-  totalLiabilities Decimal @db.Decimal(15, 2)
-  netWorth    Decimal  @db.Decimal(15, 2)
-  createdAt   DateTime @default(now())
+  id               String   @id @default(cuid())
+  date             DateTime @unique
+  totalAssets      Decimal  @db.Decimal(15, 2)
+  totalLiabilities Decimal  @db.Decimal(15, 2)
+  netWorth         Decimal  @db.Decimal(15, 2)
+  createdAt        DateTime @default(now())
 
   @@index([date])
 }
 
 model AccountNetWorthSnapshot {
-  id        String      @id @default(cuid())
-  accountId String
-  account   Account     @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  date      DateTime
+  id          String      @id @default(cuid())
+  accountId   String
+  account     Account     @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  date        DateTime
   accountType AccountType
-  balance   Decimal     @db.Decimal(15, 2)
-  netWorth  Decimal     @db.Decimal(15, 2)
-  createdAt DateTime    @default(now())
+  balance     Decimal     @db.Decimal(15, 2)
+  netWorth    Decimal     @db.Decimal(15, 2)
+  createdAt   DateTime    @default(now())
 
   @@unique([accountId, date])
   @@index([date])
-
-
 }
 
 enum AccountType {
@@ -350,19 +364,19 @@ enum CreditCardVerificationSource {
 }
 
 model Asset {
-  id                String           @id @default(cuid())
+  id                String    @id @default(cuid())
   name              String
-  type              AssetType        @default(REAL_ESTATE)
-  purchasePrice     Decimal          @db.Decimal(15, 2)
-  currentValue      Decimal          @db.Decimal(15, 2)
+  type              AssetType @default(REAL_ESTATE)
+  purchasePrice     Decimal   @db.Decimal(15, 2)
+  currentValue      Decimal   @db.Decimal(15, 2)
   purchaseDate      DateTime?
   address           String?
   metadata          Json?
   lastValuationDate DateTime?
   accountId         String?
-  account           Account?         @relation(fields: [accountId], references: [id], onDelete: SetNull)
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
+  account           Account?  @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   valuations AssetValuation[]
 
@@ -383,17 +397,17 @@ model AssetValuation {
 }
 
 model Goal {
-  id            String       @id @default(cuid())
+  id            String     @id @default(cuid())
   name          String
-  targetAmount  Decimal      @db.Decimal(15, 2)
-  currentAmount Decimal      @default(0) @db.Decimal(15, 2)
+  targetAmount  Decimal    @db.Decimal(15, 2)
+  currentAmount Decimal    @default(0) @db.Decimal(15, 2)
   targetDate    DateTime?
-  status        GoalStatus   @default(ACTIVE)
+  status        GoalStatus @default(ACTIVE)
   icon          String?
   color         String?
   notes         String?
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
 
   accounts GoalAccount[]
 
@@ -418,17 +432,17 @@ enum LoanTransactionRuleType {
 }
 
 model LoanTransactionRule {
-  id                  String                    @id @default(cuid())
-  accountId           String
-  account             Account                   @relation(name: "LoanTransactionRuleAccount", fields: [accountId], references: [id], onDelete: Cascade)
-  ruleType            LoanTransactionRuleType
-  categoryId          String?
-  category            Category?                 @relation(name: "LoanTransactionRuleCategory", fields: [categoryId], references: [id], onDelete: SetNull)
-  normalizedPayee     String?
-  description         String?
-  isActive            Boolean                   @default(true)
-  createdAt           DateTime                  @default(now())
-  updatedAt           DateTime                  @updatedAt
+  id              String                  @id @default(cuid())
+  accountId       String
+  account         Account                 @relation(name: "LoanTransactionRuleAccount", fields: [accountId], references: [id], onDelete: Cascade)
+  ruleType        LoanTransactionRuleType
+  categoryId      String?
+  category        Category?               @relation(name: "LoanTransactionRuleCategory", fields: [categoryId], references: [id], onDelete: SetNull)
+  normalizedPayee String?
+  description     String?
+  isActive        Boolean                 @default(true)
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
 
   loanTransactions LoanTransaction[] @relation("LoanTransactionRuleTransactions")
 
@@ -442,16 +456,529 @@ model LoanTransaction {
   ruleId              String
   rule                LoanTransactionRule @relation(name: "LoanTransactionRuleTransactions", fields: [ruleId], references: [id], onDelete: Cascade)
   sourceTransactionId String
-  sourceTransaction   Transaction          @relation(name: "LoanTransactionSourceTransaction", fields: [sourceTransactionId], references: [id], onDelete: Cascade)
+  sourceTransaction   Transaction         @relation(name: "LoanTransactionSourceTransaction", fields: [sourceTransactionId], references: [id], onDelete: Cascade)
   linkedAccountId     String
   linkedAccount       Account             @relation(name: "LoanTransactionLinkedAccount", fields: [linkedAccountId], references: [id], onDelete: Cascade)
-  amount              Decimal              @db.Decimal(15, 2)
+  amount              Decimal             @db.Decimal(15, 2)
   posted              DateTime
   description         String
-  createdAt           DateTime             @default(now())
+  createdAt           DateTime            @default(now())
 
   @@unique([sourceTransactionId, linkedAccountId])
   @@index([linkedAccountId])
   @@index([ruleId])
   @@index([posted])
+}
+
+// ---------------------------------------------------------------------------
+// Bank provider identities, durable sync, reconciliation and access control
+// ---------------------------------------------------------------------------
+
+enum BankProvider {
+  SIMPLEFIN
+  PLAID
+}
+
+enum BankEnvironment {
+  SANDBOX
+  PRODUCTION
+}
+
+enum ConnectionHealth {
+  HEALTHY
+  AUTH_REQUIRED
+  CONSENT_REVOKED
+  ERROR
+  DISCONNECTED
+}
+
+enum SyncProcessState {
+  NOT_READY
+  PROCESSING
+  FAILED
+  COMPLETE
+}
+
+enum AccountIngestionState {
+  ACTIVE
+  MIGRATING
+  PAUSED
+}
+
+enum AccountSourceStatus {
+  ACTIVE
+  PAUSED
+  CONSENT_EXPIRED
+  REVOKED
+  REMOVED
+}
+
+enum TransactionStatus {
+  PENDING
+  POSTED
+  REMOVED
+  SUPERSEDED
+}
+
+enum TransactionCategoryOwnership {
+  NONE
+  AI
+  RULE
+  USER
+}
+
+enum TransactionSourceStatus {
+  ACTIVE
+  REMOVED
+}
+
+enum ProviderOperationDirection {
+  INFLOW
+  OUTFLOW
+}
+
+enum SyncJobType {
+  CONNECTION_SYNC
+  SIMPLEFIN_IMPORT
+  SIMPLEFIN_BACKFILL
+  BANK_REFRESH
+  CATEGORIZE
+  QUARANTINE_REPLAY
+}
+
+enum SyncJobTrigger {
+  SCHEDULED
+  MANUAL
+  WEBHOOK
+  STARTUP
+}
+
+enum SyncJobStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+enum SyncBatchStatus {
+  STAGED
+  PUBLISHED
+  PUBLISHED_PARTIAL
+  QUARANTINED
+  DISCARDED
+  FAILED
+}
+
+enum SyncBatchChangeType {
+  ADDED
+  MODIFIED
+  REMOVED
+}
+
+enum LinkAttemptMode {
+  NEW
+  UPDATE
+}
+
+enum LinkAttemptStatus {
+  CREATED
+  EXCHANGED
+  PERSISTED
+  FAILED
+  EXPIRED
+  CANCELLED
+}
+
+enum QuarantineStatus {
+  OPEN
+  REPLAYING
+  RESOLVED
+  DISCARDED
+}
+
+enum ReconciliationCaseKind {
+  MIGRATION_PREVIEW
+  MIGRATION_COMMIT
+  QUARANTINE_REVIEW
+}
+
+enum ReconciliationCaseStatus {
+  OPEN
+  COMMITTED
+  UNDONE
+  DISCARDED
+}
+
+enum ReconciliationDecisionAction {
+  SAME_TRANSACTION
+  KEEP_BOTH
+  NEW_TRANSACTION
+  DEFER
+}
+
+enum ReconciliationAuditAction {
+  PLAN_APPLIED
+  MAPPING_MERGED
+  SOURCE_SWITCHED
+  FACTS_UPDATED
+  UNDONE
+}
+
+enum WebhookReceiptStatus {
+  RECEIVED
+  DISPATCHED
+  DUPLICATE
+  REJECTED
+}
+
+model BankConnection {
+  id                         String            @id @default(cuid())
+  provider                   BankProvider
+  environment                BankEnvironment
+  externalItemId             String
+  institutionName            String?
+  institutionLogoUrl         String?
+  // Access token is stored encrypted (AES-256-GCM). SimpleFin keeps its
+  // credentials in the CLI configuration, so the token columns are optional.
+  tokenCiphertext            String?
+  tokenNonce                 String?
+  tokenAuthTag               String?
+  tokenKeyVersion            Int?
+  status                     ConnectionHealth  @default(HEALTHY)
+  healthDetail               String?
+  consentExpiresAt           DateTime?
+  transactionsInitialState   SyncProcessState?
+  transactionsHistoryState   SyncProcessState?
+  transactionCursor          String?
+  transactionCursorUpdatedAt DateTime?
+  lastSuccessfulSyncAt       DateTime?
+  lastErrorAt                DateTime?
+  lastErrorCode              String?
+  lastErrorMessage           String?
+  pausedAt                   DateTime?
+  version                    Int               @default(0)
+  createdAt                  DateTime          @default(now())
+  updatedAt                  DateTime          @updatedAt
+
+  accountSources      AccountSource[]
+  linkAttempts        LinkAttempt[]
+  syncJobs            SyncJob[]
+  syncBatches         SyncBatch[]
+  quarantineItems     QuarantineItem[]
+  reconciliationCases ReconciliationCase[]
+  webhookReceipts     WebhookReceipt[]
+
+  @@unique([provider, environment, externalItemId])
+  @@index([provider, environment])
+  @@index([status])
+}
+
+model LinkAttempt {
+  id                            String            @id @default(cuid())
+  sessionId                     String
+  mode                          LinkAttemptMode   @default(NEW)
+  provider                      BankProvider      @default(PLAID)
+  environment                   BankEnvironment
+  status                        LinkAttemptStatus @default(CREATED)
+  linkToken                     String?
+  linkTokenExpiresAt            DateTime?
+  exchangeSessionId             String?
+  recoveryPublicTokenCiphertext String?
+  connectionId                  String?
+  connection                    BankConnection?   @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+  institutionName               String?
+  institutionId                 String?
+  requestId                     String?
+  error                         String?
+  expiresAt                     DateTime
+  completedAt                   DateTime?
+  createdAt                     DateTime          @default(now())
+  updatedAt                     DateTime          @updatedAt
+
+  @@index([sessionId])
+  @@index([status])
+  @@index([connectionId])
+}
+
+model AccountSource {
+  id                String              @id @default(cuid())
+  connectionId      String
+  connection        BankConnection      @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  accountId         String
+  account           Account             @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  externalAccountId String
+  mask              String?
+  officialName      String?
+  providerType      String?
+  providerSubtype   String?
+  currency          String              @default("USD")
+  status            AccountSourceStatus @default(ACTIVE)
+  availableBalance  Decimal?            @db.Decimal(15, 2)
+  balanceObservedAt DateTime?
+  balanceStale      Boolean             @default(false)
+  externalCreatedAt DateTime?
+  externalUpdatedAt DateTime?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  transactionSources    TransactionSource[]
+  accountsWithCandidate Account[]                 @relation("AccountCandidateSource")
+  batchChanges          SyncBatchItem[]
+  quarantineItems       QuarantineItem[]
+  reconciliationMatches ReconciliationCandidate[]
+
+  @@unique([connectionId, externalAccountId])
+  @@index([accountId])
+  @@index([connectionId])
+  @@index([status])
+}
+
+model TransactionSource {
+  id                         String                  @id @default(cuid())
+  accountSourceId            String
+  accountSource              AccountSource           @relation(fields: [accountSourceId], references: [id], onDelete: Cascade)
+  externalTransactionId      String
+  transactionId              String
+  transaction                Transaction             @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  status                     TransactionSourceStatus @default(ACTIVE)
+  pendingExternalId          String?
+  observedFacts              Json
+  sourceRevision             String?
+  sourceBatchId              String?
+  pendingTransactionSourceId String?
+  pendingTransactionSource   TransactionSource?      @relation("TransactionSourcePending", fields: [pendingTransactionSourceId], references: [id], onDelete: SetNull)
+  postedTransactionSources   TransactionSource[]     @relation("TransactionSourcePending")
+  createdAt                  DateTime                @default(now())
+  updatedAt                  DateTime                @updatedAt
+
+  @@unique([accountSourceId, externalTransactionId])
+  @@index([transactionId])
+  @@index([pendingExternalId])
+  @@index([sourceBatchId])
+}
+
+model SyncJob {
+  id               String          @id @default(cuid())
+  jobType          SyncJobType
+  connectionId     String?
+  connection       BankConnection? @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  trigger          SyncJobTrigger
+  status           SyncJobStatus   @default(QUEUED)
+  attempts         Int             @default(0)
+  maxAttempts      Int             @default(5)
+  nextRunAt        DateTime        @default(now())
+  leaseOwner       String?
+  leaseExpiresAt   DateTime?
+  heartbeatAt      DateTime?
+  rerunRequested   Boolean         @default(false)
+  version          Int             @default(0)
+  fetchedCount     Int             @default(0)
+  addedCount       Int             @default(0)
+  modifiedCount    Int             @default(0)
+  removedCount     Int             @default(0)
+  matchedCount     Int             @default(0)
+  quarantinedCount Int             @default(0)
+  errorMessage     String?
+  requestId        String?
+  payload          Json?
+  startedAt        DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  batches SyncBatch[]
+
+  @@index([status, nextRunAt])
+  @@index([connectionId])
+  @@index([jobType, trigger])
+}
+
+model SyncBatch {
+  id               String          @id @default(cuid())
+  connectionId     String
+  connection       BankConnection  @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  jobId            String?
+  job              SyncJob?        @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  status           SyncBatchStatus @default(STAGED)
+  cursorStart      String
+  cursorEnd        String?
+  addedCount       Int             @default(0)
+  modifiedCount    Int             @default(0)
+  removedCount     Int             @default(0)
+  quarantinedCount Int             @default(0)
+  isHistorical     Boolean         @default(false)
+  error            String?
+  attempt          Int             @default(1)
+  stagedAt         DateTime        @default(now())
+  publishedAt      DateTime?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  items SyncBatchItem[]
+
+  @@index([connectionId])
+  @@index([status])
+  @@index([jobId])
+}
+
+model SyncBatchItem {
+  id                    String              @id @default(cuid())
+  batchId               String
+  batch                 SyncBatch           @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  accountSourceId       String?
+  accountSource         AccountSource?      @relation(fields: [accountSourceId], references: [id], onDelete: SetNull)
+  externalTransactionId String
+  changeType            SyncBatchChangeType
+  observedFacts         Json
+  appliedTransactionId  String?
+  createdAt             DateTime            @default(now())
+
+  @@unique([batchId, externalTransactionId])
+  @@index([batchId, changeType])
+}
+
+model QuarantineItem {
+  id                    String           @id @default(cuid())
+  connectionId          String?
+  connection            BankConnection?  @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  batchId               String?
+  accountSourceId       String?
+  accountSource         AccountSource?   @relation(fields: [accountSourceId], references: [id], onDelete: SetNull)
+  externalTransactionId String?
+  reason                String
+  status                QuarantineStatus @default(OPEN)
+  sourcePayload         Json
+  replayCount           Int              @default(0)
+  lastReplayAt          DateTime?
+  resolutionNote        String?
+  resolvedAt            DateTime?
+  expireAt              DateTime?
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+
+  @@index([status])
+  @@index([connectionId])
+  @@index([createdAt])
+}
+
+model ReconciliationCase {
+  id              String                   @id @default(cuid())
+  kind            ReconciliationCaseKind
+  status          ReconciliationCaseStatus @default(OPEN)
+  connectionId    String?
+  connection      BankConnection?          @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+  accountSourceId String?
+  version         Int                      @default(0)
+  manifest        Json?
+  candidatesJson  Json?
+  coverageJson    Json?
+  totalsJson      Json?
+  notes           String?
+  createdAt       DateTime                 @default(now())
+  updatedAt       DateTime                 @updatedAt
+
+  candidates ReconciliationCandidate[]
+  decisions  ReconciliationDecision[]
+  audits     ReconciliationAudit[]
+
+  @@index([status])
+  @@index([connectionId])
+}
+
+model ReconciliationCandidate {
+  id                             String                       @id @default(cuid())
+  caseId                         String
+  case                           ReconciliationCase           @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  plaidSourceTransactionId       String?
+  simplefinSourceTransactionId   String?
+  plaidTransactionExternalId     String?
+  simplefinTransactionExternalId String?
+  accountId                      String
+  accountSource                  AccountSource?               @relation(fields: [accountSourceId], references: [id], onDelete: SetNull)
+  accountSourceId                String?
+  proposedAction                 ReconciliationDecisionAction
+  confidence                     Decimal?                     @db.Decimal(5, 4)
+  evidence                       Json
+  decided                        Boolean                      @default(false)
+  decisions                      ReconciliationDecision[]
+  createdAt                      DateTime                     @default(now())
+  updatedAt                      DateTime                     @updatedAt
+
+  @@unique([caseId, plaidSourceTransactionId, simplefinSourceTransactionId])
+  @@index([caseId])
+  @@index([accountId])
+  @@index([decided])
+}
+
+model ReconciliationDecision {
+  id                   String                       @id @default(cuid())
+  caseId               String
+  case                 ReconciliationCase           @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  candidateId          String?
+  candidate            ReconciliationCandidate?     @relation(fields: [candidateId], references: [id], onDelete: SetNull)
+  primaryTransactionId String?
+  primaryTransaction   Transaction?                 @relation("ReconciliationDecisionPrimaryTransaction", fields: [primaryTransactionId], references: [id], onDelete: Cascade)
+  matchedTransactionId String?
+  matchedTransaction   Transaction?                 @relation("ReconciliationDecisionMatchedTransaction", fields: [matchedTransactionId], references: [id], onDelete: Cascade)
+  action               ReconciliationDecisionAction
+  actor                String                       @default("owner")
+  applyProviderFacts   Boolean                      @default(false)
+  appliedAt            DateTime?
+  appliedVersion       Int                          @default(1)
+  undoneAt             DateTime?
+  undoneBy             String?
+  createdAt            DateTime                     @default(now())
+  updatedAt            DateTime                     @updatedAt
+
+  @@index([caseId])
+  @@index([primaryTransactionId])
+}
+
+model ReconciliationAudit {
+  id         String                    @id @default(cuid())
+  caseId     String
+  case       ReconciliationCase        @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  action     ReconciliationAuditAction
+  actor      String                    @default("owner")
+  beforeJson Json?
+  afterJson  Json?
+  version    Int                       @default(1)
+  createdAt  DateTime                  @default(now())
+
+  @@index([caseId])
+  @@index([createdAt])
+}
+
+model WebhookReceipt {
+  id                String               @id @default(cuid())
+  connectionId      String?
+  connection        BankConnection?      @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+  provider          BankProvider         @default(PLAID)
+  environment       BankEnvironment
+  webhookType       String
+  webhookCode       String
+  itemId            String?
+  bodySha256        String
+  signatureKeyId    String?
+  verificationState String
+  status            WebhookReceiptStatus @default(RECEIVED)
+  payloadSafe       Json?
+  error             String?
+  receivedAt        DateTime             @default(now())
+  dispatchedAt      DateTime?
+
+  @@index([bodySha256])
+  @@index([status])
+  @@index([receivedAt])
+}
+
+model AuthSession {
+  id         String   @id @default(cuid())
+  tokenHash  String   @unique
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+  expiresAt  DateTime
+
+  @@index([expiresAt])
 }

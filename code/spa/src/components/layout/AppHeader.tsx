@@ -10,6 +10,7 @@ import { useLocation } from "react-router-dom";
 import { BRAND } from "@/lib/brand";
 import { motion, useScroll, useMotionValueEvent } from "framer-motion";
 import { useState } from "react";
+import { api } from "@/lib/api";
 
 const pageTitles: Record<string, string> = {
   "/": "Dashboard",
@@ -59,6 +60,10 @@ export function AppHeader() {
       <div className="ml-auto hidden rounded-full border border-border/70 bg-card px-3 py-1 text-xs text-muted-foreground md:block">
         {BRAND.signature}
       </div>
+      <button className="ml-auto text-sm text-muted-foreground hover:text-foreground md:ml-2" onClick={async () => {
+        try { await api.logout(); window.dispatchEvent(new Event('doughray:session-expired')); }
+        catch (error) { console.error('Sign out failed', error); }
+      }}>Sign out</button>
     </motion.header>
   );
 }

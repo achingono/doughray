@@ -9,7 +9,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-finance} -d ${POSTGRES_DB:-finance}"]
       interval: 5s
@@ -25,17 +25,32 @@ services:
       postgres:
         condition: service_healthy
     ports:
-      - "${API_PORT:-3000}:3000"
+      - "127.0.0.1:${API_PORT:-3000}:3000"
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-finance}:${POSTGRES_PASSWORD:-password}@postgres:5432/${POSTGRES_DB:-finance}
       NODE_ENV: ${NODE_ENV:-production}
       API_PORT: "3000"
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
+      OWNER_PASSWORD_HASH: ${OWNER_PASSWORD_HASH:-}
+      PLAID_CLIENT_ID: ${PLAID_CLIENT_ID:-}
+      PLAID_CLIENT_SECRET: ${PLAID_CLIENT_SECRET:-}
+      PLAID_ENV: ${PLAID_ENV:-}
+      PLAID_COUNTRY_CODES: ${PLAID_COUNTRY_CODES:-}
+      PLAID_REDIRECT_URI: ${PLAID_REDIRECT_URI:-}
+      PLAID_WEBHOOK_URL: ${PLAID_WEBHOOK_URL:-}
+      PLAID_TRANSACTIONS_DAYS_REQUESTED: ${PLAID_TRANSACTIONS_DAYS_REQUESTED:-}
+      PLAID_API_VERSION: ${PLAID_API_VERSION:-}
+      PLAID_REFRESH_ENABLED: ${PLAID_REFRESH_ENABLED:-}
+      PLAID_CONNECTION_LIMIT: ${PLAID_CONNECTION_LIMIT:-}
+      PLAID_MIGRATION_CONNECTION_LIMIT_ENABLED: ${PLAID_MIGRATION_CONNECTION_LIMIT_ENABLED:-}
+      BANK_TOKEN_ENCRYPTION_KEY: ${BANK_TOKEN_ENCRYPTION_KEY:-}
+      BANK_TOKEN_ENCRYPTION_KEY_VERSION: ${BANK_TOKEN_ENCRYPTION_KEY_VERSION:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-}
       OPENAI_TEMPERATURE: ${OPENAI_TEMPERATURE:-1}
     command: >
-      sh -c "npx prisma migrate deploy --schema=prisma/schema.prisma 2>/dev/null || npx prisma db push --schema=prisma/schema.prisma && node dist/index.js"
+      sh -c "node prisma/scripts/deploy-migrations.mjs && node dist/index.js"
     healthcheck:
       test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
       interval: 10s
@@ -67,10 +82,26 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-finance}:${POSTGRES_PASSWORD:-password}@postgres:5432/${POSTGRES_DB:-finance}
       NODE_ENV: ${NODE_ENV:-production}
       SIMPLEFIN_ACCESS_URL: ${SIMPLEFIN_ACCESS_URL:-}
+      OWNER_PASSWORD_HASH: ${OWNER_PASSWORD_HASH:-}
+      PLAID_CLIENT_ID: ${PLAID_CLIENT_ID:-}
+      PLAID_CLIENT_SECRET: ${PLAID_CLIENT_SECRET:-}
+      PLAID_ENV: ${PLAID_ENV:-}
+      PLAID_COUNTRY_CODES: ${PLAID_COUNTRY_CODES:-}
+      PLAID_REDIRECT_URI: ${PLAID_REDIRECT_URI:-}
+      PLAID_WEBHOOK_URL: ${PLAID_WEBHOOK_URL:-}
+      PLAID_TRANSACTIONS_DAYS_REQUESTED: ${PLAID_TRANSACTIONS_DAYS_REQUESTED:-}
+      PLAID_API_VERSION: ${PLAID_API_VERSION:-}
+      PLAID_REFRESH_ENABLED: ${PLAID_REFRESH_ENABLED:-}
+      PLAID_CONNECTION_LIMIT: ${PLAID_CONNECTION_LIMIT:-}
+      PLAID_MIGRATION_CONNECTION_LIMIT_ENABLED: ${PLAID_MIGRATION_CONNECTION_LIMIT_ENABLED:-}
+      BANK_TOKEN_ENCRYPTION_KEY: ${BANK_TOKEN_ENCRYPTION_KEY:-}
+      BANK_TOKEN_ENCRYPTION_KEY_VERSION: ${BANK_TOKEN_ENCRYPTION_KEY_VERSION:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-}
       OPENAI_TEMPERATURE: ${OPENAI_TEMPERATURE:-1}
+    command: >
+      sh -c "node prisma/scripts/deploy-migrations.mjs && node dist/index.js"
     volumes:
       - ./.config/simplefin-cli:/root/.simplefin-cli
 

@@ -49,6 +49,7 @@ export function TransactionsPage() {
 
   const loadCategories = useCallback(async () => {
     const response = await api.getTransactionFilterCategories({
+      status: filters.status,
       accountId: filters.accountId,
       startDate: filters.startDate,
       endDate: filters.endDate,
@@ -60,7 +61,7 @@ export function TransactionsPage() {
     if (filters.categoryId && !response.data.some((category) => category.id === filters.categoryId)) {
       updateFilters({ categoryId: undefined });
     }
-  }, [filters.accountId, filters.categoryId, filters.endDate, filters.search, filters.startDate, updateFilters]);
+  }, [filters.accountId, filters.categoryId, filters.endDate, filters.search, filters.startDate, filters.status, updateFilters]);
 
   const loadAllCategories = useCallback(async () => {
     const response = await api.getCategories();
@@ -113,6 +114,12 @@ export function TransactionsPage() {
         <Button onClick={() => setImportOpen(true)}>
           <Upload className="mr-2 h-4 w-4" /> Import File
         </Button>
+      </div>
+
+      <div className="flex gap-2" aria-label="Transaction status">
+        <Button size="sm" variant={filters.status !== 'PENDING' ? 'default' : 'outline'} onClick={() => updateFilters({ status: 'POSTED', categoryId: undefined })}>Posted</Button>
+        <Button size="sm" variant={filters.status === 'PENDING' ? 'default' : 'outline'} onClick={() => updateFilters({ status: 'PENDING', categoryId: undefined })}>Pending</Button>
+        {filters.status === 'PENDING' && <span className="self-center text-sm text-muted-foreground">Pending transactions are excluded from totals.</span>}
       </div>
 
         <TransactionFilters

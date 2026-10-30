@@ -196,8 +196,9 @@ export interface Transaction {
   payee: string | null;
   memo: string | null;
   isReviewed: boolean;
+  status?: 'POSTED' | 'PENDING';
   categoryRuleId: string | null;
-  account: { id: string; name: string; institution: string | null };
+  account: { id: string; name: string; institution: string | null; currency?: string };
   category: CategoryRef | null;
 }
 

@@ -21,6 +21,7 @@ export interface DateRangeFilter {
 }
 
 export interface TransactionFilters extends DateRangeFilter {
+  status?: 'POSTED' | 'PENDING';
   accountId?: string;
   categoryId?: string;
   search?: string;

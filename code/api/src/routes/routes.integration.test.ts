@@ -105,6 +105,9 @@ const { syncServiceMock } = vi.hoisted(() => ({
     triggerSync: vi.fn(),
   },
 }));
+const { syncQueueMock } = vi.hoisted(() => ({
+  syncQueueMock: { enqueueSyncJob: vi.fn(), getSyncJobOrThrow: vi.fn(), toSyncJobDto: vi.fn() },
+}));
 const { assetServiceMock } = vi.hoisted(() => ({
   assetServiceMock: {
     getAssets: vi.fn(),
@@ -139,6 +142,7 @@ vi.mock('../services/report.service', () => reportServiceMock);
 vi.mock('../services/pfs.service', () => pfsServiceMock);
 vi.mock('../services/expense-analysis.service', () => expenseAnalysisServiceMock);
 vi.mock('../services/sync.service', () => syncServiceMock);
+vi.mock('../services/sync-queue.service', () => syncQueueMock);
 vi.mock('../services/asset.service', () => assetServiceMock);
 vi.mock('../services/goal.service', () => goalServiceMock);
 
@@ -523,7 +527,9 @@ describe('API route integration', () => {
 
     await request(app).get('/api/sync/status').expect(200).expect({ data: { id: 's1' } });
     await request(app).get('/api/sync/history?limit=5').expect(200).expect({ data: [{ id: 's1' }] });
-    await request(app).post('/api/sync/trigger').expect(200);
+    syncQueueMock.enqueueSyncJob.mockResolvedValue({ jobId: 'job-1', coalesced: false });
+    await request(app).post('/api/sync/trigger').expect(202).expect({ data: { jobId: 'job-1', coalesced: false, status: 'QUEUED' } });
+    expect(syncQueueMock.enqueueSyncJob).toHaveBeenCalledWith({ jobType: 'SIMPLEFIN_IMPORT', trigger: 'MANUAL' });
   });
 
   it('handles assets and goals routes with validation and not found handling', async () => {

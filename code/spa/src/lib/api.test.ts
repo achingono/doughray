@@ -26,6 +26,16 @@ describe('api client', () => {
     expect(result).toEqual({ data: [{ id: 'a1' }] });
   });
 
+  it('sends the CSRF cookie for JSON and multipart mutations', async () => {
+    document.cookie = 'doughray_csrf=fixture-token; path=/';
+    fetchMock.mockResolvedValue({ ok: true, status: 200, json: vi.fn().mockResolvedValue({ data: {} }) });
+    await api.updateAccountBalance('a', { balance: 1 });
+    const file = new File(['data'], 'data.csv');
+    await api.importTransactions({ file, accountId: 'a', format: 'csv' });
+    for (const call of fetchMock.mock.calls) expect(call[1].headers.get('X-CSRF-Token')).toBe('fixture-token');
+    document.cookie = 'doughray_csrf=; Max-Age=0; path=/';
+  });
+
   it('throws API error message for non-ok responses', async () => {
     fetchMock.mockResolvedValue({
       ok: false,

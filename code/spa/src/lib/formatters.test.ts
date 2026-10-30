@@ -4,6 +4,7 @@ import {
   formatCompactCurrency,
   formatCurrency,
   formatDate,
+  formatCalendarDate,
   formatPercent,
   formatShortDate,
   getAccountTypeIcon,
@@ -21,6 +22,11 @@ describe('formatters', () => {
     const date = '2026-01-15T00:00:00.000Z';
     expect(formatDate(date)).toContain('2026');
     expect(formatShortDate(date)).toContain('Jan');
+  });
+
+  it('keeps bank calendar dates on the same day across DST changes', () => {
+    expect(formatCalendarDate('2026-03-08T00:00:00.000Z')).toBe('Mar 8, 2026');
+    expect(formatCalendarDate('2026-11-01T00:00:00.000Z')).toBe('Nov 1, 2026');
   });
 
   it('formats percent and change values', () => {

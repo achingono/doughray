@@ -74,6 +74,7 @@ async function resolveBudgetPeriod(periodParam: string | undefined, now: Date): 
 
   if (periodParam === 'all') {
     const firstTx = await prisma.transaction.findFirst({
+      where: { status: 'POSTED' },
       orderBy: { posted: 'asc' },
       select: { posted: true },
     });
@@ -118,6 +119,7 @@ export async function getBudgets(periodParam?: string): Promise<BudgetWithProgre
 
     // Use the calculated startDate and endDate for the query
     const whereClause: Prisma.TransactionWhereInput = {
+      status: 'POSTED',
       categoryId: { in: categoryIds },
       amount: { lt: 0 },
     };

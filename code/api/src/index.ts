@@ -13,7 +13,13 @@ import syncRoutes from './routes/sync';
 import assetRoutes from './routes/assets';
 import goalRoutes from './routes/goals';
 import loanTransactionRoutes from './routes/loan-transactions';
+import authRoutes from './routes/auth';
+import plaidRoutes from './routes/plaid';
+import bankConnectionRoutes from './routes/bank-connections';
+import bankReconciliationRoutes from './routes/bank-reconciliation';
 import { seedDefaultCategoriesOnStartup } from './lib/seed-categories';
+import { getBankConfigStatus } from './lib/bank-config';
+import { ownerPasswordHashConfigured, requireOwnerSession } from './middleware/auth';
 
 const app = express();
 // Avoid disclosing the framework version in the `x-powered-by` response header.
@@ -41,7 +47,7 @@ const contentSecurityPolicy = [
 ].join('; ');
 
 // Middleware
-app.use(cors({ origin: corsOrigin }));
+app.use(cors({ origin: corsOrigin, credentials: true }));
 app.use((_req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
@@ -50,6 +56,9 @@ app.use((_req, res, next) => {
   res.setHeader('Content-Security-Policy', contentSecurityPolicy);
   next();
 });
+// The verified Plaid webhook must see the exact raw bytes its body hash covers:
+// capture them before the JSON parser consumes the stream.
+app.use('/api/plaid/webhook', express.raw({ type: 'application/json', limit: '256kb' }));
 app.use(express.json());
 
 // Health check
@@ -57,19 +66,25 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Routes
-app.use('/api/accounts', accountRoutes);
-app.use('/api/transactions', transactionRoutes);
-app.use('/api/dashboard', dashboardRoutes);
-app.use('/api/holdings', holdingRoutes);
-app.use('/api/budgets', budgetRoutes);
-app.use('/api/categories', categoryRoutes);
-app.use('/api/category-rules', categoryRuleRoutes);
-app.use('/api/reports', reportRoutes);
-app.use('/api/sync', syncRoutes);
-app.use('/api/assets', assetRoutes);
-app.use('/api/goals', goalRoutes);
-app.use('/api/loan-transactions', loanTransactionRoutes);
+// Auth (health, login and the verified webhook are the only public endpoints)
+app.use('/api/auth', authRoutes);
+app.use('/api/plaid', plaidRoutes);
+
+// Financial/management routers: uniform owner-session guard.
+app.use('/api/bank-connections', requireOwnerSession(), bankConnectionRoutes);
+app.use('/api/bank-reconciliation', requireOwnerSession(), bankReconciliationRoutes);
+app.use('/api/accounts', requireOwnerSession(), accountRoutes);
+app.use('/api/transactions', requireOwnerSession(), transactionRoutes);
+app.use('/api/dashboard', requireOwnerSession(), dashboardRoutes);
+app.use('/api/holdings', requireOwnerSession(), holdingRoutes);
+app.use('/api/budgets', requireOwnerSession(), budgetRoutes);
+app.use('/api/categories', requireOwnerSession(), categoryRoutes);
+app.use('/api/category-rules', requireOwnerSession(), categoryRuleRoutes);
+app.use('/api/reports', requireOwnerSession(), reportRoutes);
+app.use('/api/sync', requireOwnerSession(), syncRoutes);
+app.use('/api/assets', requireOwnerSession(), assetRoutes);
+app.use('/api/goals', requireOwnerSession(), goalRoutes);
+app.use('/api/loan-transactions', requireOwnerSession(), loanTransactionRoutes);
 
 // Error handler (must be last)
 app.use(errorHandler);
@@ -77,6 +92,21 @@ app.use(errorHandler);
 async function startServer() {
   try {
     await seedDefaultCategoriesOnStartup();
+
+    // Bank configuration check at startup: clear status, never secret values.
+    // Missing or invalid settings disable linking clearly but do not crash the
+    // API; only owner access depends on OWNER_PASSWORD_HASH.
+    const bankStatus = getBankConfigStatus();
+    if (bankStatus.issues.length > 0) {
+      for (const issue of bankStatus.issues) {
+        console.warn(`[Startup] Bank config: ${issue}`);
+      }
+    } else {
+      console.log(`[Startup] Bank config: Plaid ${bankStatus.plaid.env} linking ready.`);
+    }
+    if (!ownerPasswordHashConfigured()) {
+      console.warn('[Startup] Bank config: OWNER_PASSWORD_HASH is not provisioned; owner login is disabled.');
+    }
 
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`API server running on port ${PORT}`);

@@ -191,7 +191,7 @@ export async function generatePFS(options: { overwriteExisting?: boolean } = {})
       orderBy: { date: 'asc' },
     }),
     prisma.transaction.findMany({
-      where: { posted: { gte: startOfMonth } },
+      where: { status: 'POSTED', posted: { gte: startOfMonth } },
       include: { category: { select: { name: true, parent: { select: { name: true } } } } },
     }),
   ]);

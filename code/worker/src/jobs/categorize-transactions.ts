@@ -1,4 +1,5 @@
 import prisma from '../lib/prisma';
+import { sanitizeAiText } from '@doughray/shared';
 import openai, {
   getMissingOpenAIConfig,
   getOpenAIModel,
@@ -60,11 +61,12 @@ function resolveCategoryId(
 async function categorizeBatch(
   assignments: Assignment[],
   validCategoryIds: Set<string>,
-  categoryIdByName: Map<string, string>
+  categoryIdByName: Map<string, string>,
+  submittedIds: Set<string>
 ): Promise<number> {
   let categorized = 0;
   for (const assignment of assignments) {
-    if (!assignment.transactionId) continue;
+    if (!assignment.transactionId || !submittedIds.has(assignment.transactionId)) continue;
 
     const resolvedCategoryId = resolveCategoryId(
       assignment,
@@ -73,16 +75,16 @@ async function categorizeBatch(
     );
     if (!resolvedCategoryId) continue;
 
-    await prisma.transaction
+    const updated = await prisma.transaction
       .update({
-        where: { id: assignment.transactionId },
-        data: { categoryId: resolvedCategoryId },
+        where: { id: assignment.transactionId, isReviewed: false, categoryId: null, status: 'POSTED' },
+        data: { categoryId: resolvedCategoryId, categoryOwnership: 'AI' },
       })
       .catch(() => {
-        // Skip if transaction not found
+        return null;
       });
 
-    categorized++;
+    if (updated) categorized++;
   }
   return categorized;
 }
@@ -106,6 +108,7 @@ async function applyCategoryRulesToTransactions(transactionIds: string[]): Promi
     }),
     prisma.transaction.findMany({
       where: {
+        status: 'POSTED',
         id: { in: transactionIds },
         categoryId: null,
         isReviewed: false,
@@ -136,11 +139,12 @@ async function applyCategoryRulesToTransactions(transactionIds: string[]): Promi
     if (!rule) continue;
 
     await prisma.transaction.update({
-      where: { id: tx.id },
+      where: { id: tx.id, isReviewed: false, categoryId: null, status: 'POSTED' },
       data: {
         categoryId: rule.categoryId,
         isReviewed: true,
         categoryRuleId: rule.id,
+        categoryOwnership: 'RULE',
       },
     });
     applied += 1;
@@ -153,6 +157,7 @@ export async function categorizeTransactions(): Promise<number> {
   console.log('[Categorize] Starting transaction categorization...');
   const candidateUncategorized = await prisma.transaction.findMany({
     where: {
+      status: 'POSTED',
       categoryId: null,
       isReviewed: false,
     },
@@ -179,6 +184,7 @@ export async function categorizeTransactions(): Promise<number> {
 
   const afterRuleApplication = await prisma.transaction.findMany({
     where: {
+      status: 'POSTED',
       id: { in: candidateIds },
       categoryId: null,
       isReviewed: false,
@@ -199,13 +205,14 @@ export async function categorizeTransactions(): Promise<number> {
 
   for (let i = 0; i < afterRuleApplication.length; i += BATCH_SIZE) {
     const batch = afterRuleApplication.slice(i, i + BATCH_SIZE);
+    const ids = new Map(batch.map((transaction, offset) => [`t${offset + 1}`, transaction.id]));
     const prompt = buildCategorizationPrompt(
       categories.map(c => ({ name: c.name, id: c.id })),
-      batch.map(t => ({
-        id: t.id,
-        description: t.description,
+      batch.map((t, offset) => ({
+        id: `t${offset + 1}`,
+        description: sanitizeAiText(t.description),
         amount: t.amount.toString(),
-        payee: t.payee || undefined,
+        payee: t.payee ? sanitizeAiText(t.payee) : undefined,
       }))
     );
 
@@ -220,8 +227,9 @@ export async function categorizeTransactions(): Promise<number> {
       const content = response.choices[0]?.message?.content;
       if (!content) continue;
 
-      const assignments = parseAssignments(content);
-      categorized += await categorizeBatch(assignments, validCategoryIds, categoryIdByName);
+      const assignments = parseAssignments(content).map((assignment) => ({ ...assignment,
+        transactionId: assignment.transactionId ? ids.get(assignment.transactionId) : undefined }));
+      categorized += await categorizeBatch(assignments, validCategoryIds, categoryIdByName, new Set(batch.map((item) => item.id)));
 
       console.log(`[Categorize] Batch ${Math.floor(i / BATCH_SIZE) + 1}: categorized ${assignments.length} transactions`);
     } catch (err) {

@@ -59,6 +59,7 @@ export async function getHoldingsHistory(months?: number): Promise<TrendDataPoin
   const now = new Date();
 
   const firstTx = await prisma.transaction.findFirst({
+    where: { status: 'POSTED' },
     orderBy: { posted: 'asc' },
     select: { posted: true },
   });
@@ -82,7 +83,7 @@ export async function getHoldingsHistory(months?: number): Promise<TrendDataPoin
 
   const lastMonthExclusive = new Date(now.getFullYear(), now.getMonth() + 1, 1);
   const transactions = await prisma.transaction.findMany({
-    where: { posted: { lt: lastMonthExclusive } },
+    where: { status: 'POSTED', posted: { lt: lastMonthExclusive } },
     select: { posted: true, amount: true },
     orderBy: { posted: 'asc' },
   });

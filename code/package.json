@@ -16,6 +16,7 @@
     "test:api": "npm run test --workspace=api",
     "test:spa": "npm run test --workspace=spa",
     "test:worker": "npm run test --workspace=worker",
+    "test:plaid:db": "bash scripts/check-plaid-db.sh",
     "test:coverage": "npm run test:coverage --workspace=api && npm run test:coverage --workspace=spa && npm run test:coverage --workspace=worker",
     "test:e2e": "npm run test:e2e --workspace=spa",
     "test:e2e:headed": "npm run test:e2e:headed --workspace=spa",

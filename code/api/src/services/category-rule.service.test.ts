@@ -93,11 +93,12 @@ describe('category-rule.service', () => {
 
     expect(applied).toBe(1);
     expect(prismaMock.transaction.update).toHaveBeenCalledWith({
-      where: { id: 't1' },
+      where: { id: 't1', isReviewed: false, categoryId: null, status: 'POSTED' },
       data: {
         categoryId: 'c1',
         isReviewed: true,
         categoryRuleId: 'rule-1',
+        categoryOwnership: 'RULE',
       },
     });
   });

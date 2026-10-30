@@ -76,6 +76,7 @@ export async function applyCategoryRulesToTransactions(transactionIds: string[])
     }),
     prisma.transaction.findMany({
       where: {
+        status: 'POSTED',
         id: { in: transactionIds },
         categoryId: null,
         isReviewed: false,
@@ -113,11 +114,12 @@ export async function applyCategoryRulesToTransactions(transactionIds: string[])
     if (!rule) continue;
 
     await prisma.transaction.update({
-      where: { id: transaction.id },
+      where: { id: transaction.id, isReviewed: false, categoryId: null, status: 'POSTED' },
       data: {
         categoryId: rule.categoryId,
         isReviewed: true,
         categoryRuleId: rule.id,
+        categoryOwnership: 'RULE',
       },
     });
     applied += 1;

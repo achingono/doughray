@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import { sanitizeAiText } from '@doughray/shared';
 import openai, {
   getMissingOpenAIConfig,
   getOpenAIModel,
@@ -43,19 +44,20 @@ async function categorizeBatch(
   assignments: Assignment[],
   validCategoryIds: Set<string>,
   categoryIdByName: Map<string, string>,
+  submittedIds: Set<string>,
 ): Promise<number> {
   let categorized = 0;
 
   for (const assignment of assignments) {
-    if (!assignment.transactionId) continue;
+    if (!assignment.transactionId || !submittedIds.has(assignment.transactionId)) continue;
 
     const resolvedCategoryId = resolveCategoryId(assignment, validCategoryIds, categoryIdByName);
     if (!resolvedCategoryId) continue;
 
     try {
       await prisma.transaction.update({
-        where: { id: assignment.transactionId },
-        data: { categoryId: resolvedCategoryId },
+        where: { id: assignment.transactionId, isReviewed: false, categoryId: null, status: 'POSTED' },
+        data: { categoryId: resolvedCategoryId, categoryOwnership: 'AI' },
       });
       categorized += 1;
     } catch (err) {
@@ -100,6 +102,7 @@ export async function runTransactionCategorization(transactionIds: string[]): Pr
 
   const uncategorized = await prisma.transaction.findMany({
     where: {
+      status: 'POSTED',
       id: { in: transactionIds },
       categoryId: null,
       isReviewed: false,
@@ -114,13 +117,14 @@ export async function runTransactionCategorization(transactionIds: string[]): Pr
 
   for (let index = 0; index < uncategorized.length; index += BATCH_SIZE) {
     const batch = uncategorized.slice(index, index + BATCH_SIZE);
+    const ids = new Map(batch.map((transaction, offset) => [`t${offset + 1}`, transaction.id]));
     const prompt = buildCategorizationPrompt(
       categories.map((category) => ({ name: category.name, id: category.id })),
-      batch.map((transaction) => ({
-        id: transaction.id,
-        description: transaction.description,
+      batch.map((transaction, offset) => ({
+        id: `t${offset + 1}`,
+        description: sanitizeAiText(transaction.description),
         amount: transaction.amount.toString(),
-        payee: transaction.payee || undefined,
+        payee: transaction.payee ? sanitizeAiText(transaction.payee) : undefined,
       })),
     );
 
@@ -135,8 +139,9 @@ export async function runTransactionCategorization(transactionIds: string[]): Pr
       const content = response.choices[0]?.message?.content;
       if (!content) continue;
 
-      const assignments = parseAssignments(content);
-      categorized += await categorizeBatch(assignments, validCategoryIds, categoryIdByName);
+      const assignments = parseAssignments(content).map((assignment) => ({ ...assignment,
+        transactionId: assignment.transactionId ? ids.get(assignment.transactionId) : undefined }));
+      categorized += await categorizeBatch(assignments, validCategoryIds, categoryIdByName, new Set(batch.map((item) => item.id)));
       console.log(`[Categorize] Batch ${Math.floor(index / BATCH_SIZE) + 1}: categorized ${assignments.length} transactions`);
     } catch (err) {
       logBatchError(err, Math.floor(index / BATCH_SIZE) + 1);

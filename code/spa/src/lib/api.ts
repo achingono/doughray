@@ -1,9 +1,47 @@
 const API_BASE = '/api';
 
+export class ApiError extends Error {
+  constructor(message: string, public readonly status: number, public readonly code?: string) {
+    super(message);
+  }
+}
+
+export interface BankConnection {
+  id: string; provider: string; environment: string; institutionName: string | null; status: string;
+  healthDetail: string | null; pausedAt: string | null; lastSuccessfulSyncAt: string | null;
+  transactionsInitialState: string | null; transactionsHistoryState: string | null;
+  accounts: Array<{ id: string; externalAccountId: string; mappedAccount: { id: string; name: string } | null }>;
+}
+export interface PlaidAccountSuggestion {
+  externalAccountId: string; name: string; mask: string | null; currency: string | null;
+  mappedAccountSourceId: string | null; suggestedAccountId: string | null;
+}
+export interface PlaidLinkAttempt { attemptId: string; mode: 'NEW' | 'UPDATE'; connectionId: string | null; linkToken: string; }
+export interface MigrationReview {
+  batchId: string;
+  cases: Array<{ id: string; accountName: string; candidates: Array<{ id: string; evidence: {
+    change: { postedDate: string; amount: string; currency: string; observedFacts: { description: string; payee: string | null } };
+    candidates: Array<{ id: string; posted: string; amount: string; description: string; payee: string | null }>;
+  } }> }>;
+}
+export interface SyncJobResult { id: string; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; errorMessage: string | null; }
+
+function csrfToken(): string | null {
+  const cookie = document.cookie.split(';').map((part) => part.trim()).find((part) => part.startsWith('doughray_csrf='));
+  if (!cookie) return null;
+  try { return decodeURIComponent(cookie.slice('doughray_csrf='.length)); } catch { return null; }
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const headers = new Headers(options?.headers);
   if (!(options?.body instanceof FormData) && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
+  }
+
+  const method = (options?.method ?? 'GET').toUpperCase();
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(method) && path !== '/auth/login') {
+    const token = csrfToken();
+    if (token) headers.set('X-CSRF-Token', token);
   }
 
   const res = await fetch(`${API_BASE}${path}`, {
@@ -13,7 +51,8 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     const error = await res.json().catch(() => ({ error: { message: res.statusText } }));
-    throw new Error(error.error?.message || `Request failed: ${res.status}`);
+    if (res.status === 401 && !path.startsWith('/auth/')) window.dispatchEvent(new Event('doughray:session-expired'));
+    throw new ApiError(error.error?.message || `Request failed: ${res.status}`, res.status, error.error?.code);
   }
 
   if (res.status === 204) return undefined as T;
@@ -21,6 +60,25 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  getSession: () => request<{ data: { authenticated: boolean } }>('/auth/me'),
+  login: (password: string) => request<{ data: { authenticated: boolean } }>('/auth/login', { method: 'POST', body: JSON.stringify({ password }) }),
+  logout: () => request<{ data: { authenticated: boolean } }>('/auth/logout', { method: 'POST' }),
+  bankConnections: () => request<{ data: { connections: BankConnection[]; config: { plaid: { configured: boolean; env: string | null; refreshEnabled: boolean }; issues: string[] } } }>('/bank-connections'),
+  plaidLinkToken: (mode: 'NEW' | 'UPDATE', connectionId?: string) => request<{ data: PlaidLinkAttempt }>('/plaid/link-token', { method: 'POST', body: JSON.stringify({ mode, connectionId }) }),
+  plaidExchange: (attemptId: string, publicToken: string, institutionName?: string, institutionId?: string) =>
+    request<{ data: { connection: BankConnection; accounts: PlaidAccountSuggestion[] } }>('/plaid/exchange', { method: 'POST', body: JSON.stringify({ attemptId, publicToken, institutionName, institutionId }) }),
+  plaidLinkComplete: (connectionId: string, attemptId: string) => request<{ data: unknown }>(`/plaid/connections/${encodeURIComponent(connectionId)}/link-complete`, { method: 'POST', body: JSON.stringify({ attemptId }) }),
+  bankAccounts: (id: string) => request<{ data: { accounts: PlaidAccountSuggestion[] } }>(`/bank-connections/${encodeURIComponent(id)}/accounts`),
+  mapBankAccounts: (id: string, mappings: Array<{ externalAccountId: string; action: 'CREATE' | 'MAP'; accountId?: string }>) =>
+    request<{ data: BankConnection }>(`/bank-connections/${encodeURIComponent(id)}/account-mappings`, { method: 'POST', body: JSON.stringify({ mappings }) }),
+  syncBank: (id: string) => request<{ data: { jobId: string } }>(`/bank-connections/${encodeURIComponent(id)}/sync`, { method: 'POST' }),
+  refreshBank: (id: string) => request<{ data: { jobId: string } }>(`/bank-connections/${encodeURIComponent(id)}/refresh`, { method: 'POST' }),
+  pauseBank: (id: string, paused: boolean) => request<{ data: BankConnection }>(`/bank-connections/${encodeURIComponent(id)}/${paused ? 'pause' : 'resume'}`, { method: 'POST' }),
+  disconnectBank: (id: string) => request<{ data: { retriable: boolean } }>(`/bank-connections/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  bankReview: (id: string) => request<{ data: MigrationReview | null }>(`/bank-reconciliation/${encodeURIComponent(id)}`),
+  commitBankReview: (id: string, batchId: string, decisions: Array<{ candidateId: string; action: 'SAME_TRANSACTION' | 'NEW_TRANSACTION'; transactionId?: string }>) =>
+    request<{ data: { approved: number } }>(`/bank-reconciliation/${encodeURIComponent(id)}/${encodeURIComponent(batchId)}/commit`, { method: 'POST', body: JSON.stringify({ decisions }) }),
+  refreshBankReview: (id: string, batchId: string) => request<void>(`/bank-reconciliation/${encodeURIComponent(id)}/${encodeURIComponent(batchId)}/discard`, { method: 'POST' }),
   // Dashboard
   getDashboardSummary: (accountId?: string) => {
     const params = new URLSearchParams();
@@ -129,6 +187,7 @@ export const api = {
 
   // Transactions
   getTransactions: (params: {
+    status?: 'POSTED' | 'PENDING';
     accountId?: string;
     categoryId?: string;
     startDate?: string;
@@ -142,6 +201,7 @@ export const api = {
     return request<import('../types').PaginatedResponse<import('../types').Transaction>>(`/transactions?${searchParams}`);
   },
   getTransactionFilterCategories: (params: {
+    status?: 'POSTED' | 'PENDING';
     accountId?: string;
     startDate?: string;
     endDate?: string;
@@ -234,7 +294,8 @@ export const api = {
   // Sync
   getSyncStatus: () => request<{ data: import('../types').SyncStatus | null }>('/sync/status'),
   getSyncHistory: (limit = 10) => request<{ data: import('../types').SyncStatus[] }>(`/sync/history?limit=${limit}`),
-  triggerSync: () => request('/sync/trigger', { method: 'POST' }),
+  triggerSync: () => request<{ data: { jobId: string } }>('/sync/trigger', { method: 'POST' }),
+  getSyncJob: (id: string) => request<{ data: SyncJobResult }>(`/sync/jobs/${encodeURIComponent(id)}`),
 
   // Assets
   getAssets: () => request<{ data: import('../types').Asset[] }>('/assets'),

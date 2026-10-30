@@ -25,6 +25,13 @@ export function formatDate(date: string | Date): string {
   }).format(new Date(date));
 }
 
+/** Bank posting dates are stored at UTC midnight as calendar dates. */
+export function formatCalendarDate(date: string | Date): string {
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC',
+  }).format(new Date(date));
+}
+
 export function formatShortDate(date: string | Date): string {
   return new Intl.DateTimeFormat('en-US', {
     month: 'short',

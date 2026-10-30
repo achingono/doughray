@@ -38,7 +38,7 @@ export async function generateMonthlyReport(): Promise<void> {
 
   // Gather data
   const transactions = await prisma.transaction.findMany({
-    where: { posted: { gte: lastMonth, lte: endOfLastMonth } },
+    where: { status: 'POSTED', posted: { gte: lastMonth, lte: endOfLastMonth } },
     include: { category: true },
   });
 

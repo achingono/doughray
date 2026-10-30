@@ -348,6 +348,7 @@ export async function generateExpenseAnalysis(options: { overwriteExisting?: boo
   const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
   const txRows = await prisma.transaction.findMany({
     where: {
+      status: 'POSTED',
       posted: { gte: start, lt: end },
     },
     select: {

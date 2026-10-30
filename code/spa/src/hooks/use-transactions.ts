@@ -3,6 +3,7 @@ import { api } from '../lib/api';
 import type { Transaction, PaginatedResponse } from '../types';
 
 export interface TransactionFilters {
+  status?: 'POSTED' | 'PENDING';
   accountId?: string;
   categoryId?: string;
   startDate?: string;

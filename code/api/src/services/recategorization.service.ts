@@ -74,6 +74,7 @@ async function getTargetTransaction(id: string): Promise<BaseTransaction> {
 async function findMatchingPastTransactions(target: BaseTransaction, normalizedPayee: string) {
   const candidates = await prisma.transaction.findMany({
     where: {
+      status: 'POSTED',
       accountId: target.accountId,
       posted: { lte: target.posted },
     },

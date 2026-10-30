@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { prismaMock } = vi.hoisted(() => ({
   prismaMock: {
+    $transaction: vi.fn(),
+    $queryRaw: vi.fn(),
     syncLog: {
       findFirst: vi.fn(),
       create: vi.fn(),
@@ -33,13 +35,16 @@ import { importTransactions } from './import-transactions';
 describe('importTransactions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    prismaMock.$transaction.mockImplementation(async (fn) => fn(prismaMock));
+    prismaMock.$queryRaw.mockResolvedValue([]);
   });
 
   it('updates account balances without mutating loan metadata fields', async () => {
     prismaMock.syncLog.findFirst.mockResolvedValue({ startedAt: new Date('2026-04-22T00:00:00.000Z') });
     prismaMock.transaction.count.mockResolvedValue(12);
     prismaMock.syncLog.create.mockResolvedValue({ id: 'sync-1' });
-    prismaMock.account.findUnique.mockResolvedValue({ id: 'a1' });
+    prismaMock.account.findUnique.mockResolvedValue({ id: 'a1', ingestionState: 'ACTIVE', accountSources: [] });
+    prismaMock.account.upsert.mockResolvedValue({ id: 'a1' });
     prismaMock.transaction.upsert.mockResolvedValue({});
 
     simplefinMock.fetchAccounts.mockReturnValue({
@@ -85,5 +90,17 @@ describe('importTransactions', () => {
     expect(upsertArgs.create).not.toHaveProperty('registeredDetails');
     expect(upsertArgs.update).not.toHaveProperty('creditCardDetails');
     expect(upsertArgs.create).not.toHaveProperty('creditCardDetails');
+  });
+
+  it('does not update accounts while migration is in progress', async () => {
+    prismaMock.syncLog.findFirst.mockResolvedValue(null);
+    prismaMock.transaction.count.mockResolvedValue(0);
+    prismaMock.syncLog.create.mockResolvedValue({ id: 'sync-1' });
+    prismaMock.account.findUnique.mockResolvedValue({ id: 'a1', ingestionState: 'MIGRATING', accountSources: [] });
+    simplefinMock.fetchAccounts.mockReturnValue({ ok: true, accounts: [{ id: 'ACT-1' }] });
+    simplefinMock.fetchTransactions.mockReturnValue({ ok: true, transactions: [] });
+    await expect(importTransactions()).resolves.toEqual({ accountCount: 0, transactionCount: 0 });
+    expect(prismaMock.account.upsert).not.toHaveBeenCalled();
+    expect(prismaMock.transaction.upsert).not.toHaveBeenCalled();
   });
 });

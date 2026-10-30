@@ -1,3 +1,5 @@
+import { sanitizeAiText } from '@doughray/shared';
+
 interface ExpenseOptimizationPromptData {
   periodCovered: string;
   totalExpenses: number;
@@ -44,19 +46,19 @@ interface ExpenseOptimizationPromptData {
 export function buildExpenseAnalysisPrompt(data: ExpenseOptimizationPromptData): string {
   const recurringLines = data.topRecurringMerchants.length > 0
     ? data.topRecurringMerchants
-      .map((item) => `  - ${item.merchant}: $${item.monthlyCost.toFixed(2)}/mo ($${item.annualCost.toFixed(2)}/yr), ${item.cadence}, confidence ${item.confidence.toFixed(2)}`)
+      .map((item) => `  - ${sanitizeAiText(item.merchant)}: $${item.monthlyCost.toFixed(2)}/mo ($${item.annualCost.toFixed(2)}/yr), ${item.cadence}, confidence ${item.confidence.toFixed(2)}`)
       .join('\n')
     : '  - None detected';
 
   const subscriptionLines = data.subscriptionCandidates.length > 0
     ? data.subscriptionCandidates
-      .map((item) => `  - ${item.merchant}: $${item.monthlyCost.toFixed(2)}/mo ($${item.annualCost.toFixed(2)}/yr), confidence ${item.confidence.toFixed(2)}. ${item.rationale}`)
+      .map((item) => `  - ${sanitizeAiText(item.merchant)}: $${item.monthlyCost.toFixed(2)}/mo ($${item.annualCost.toFixed(2)}/yr), confidence ${item.confidence.toFixed(2)}. ${sanitizeAiText(item.rationale)}`)
       .join('\n')
     : '  - None detected';
 
   const negotiationLines = data.negotiationCandidates.length > 0
     ? data.negotiationCandidates
-      .map((item) => `  - ${item.merchant}: spend $${item.averageMonthlySpend.toFixed(2)}/mo, est savings $${item.estimatedMonthlySavings.toFixed(2)}/mo. ${item.rationale}`)
+      .map((item) => `  - ${sanitizeAiText(item.merchant)}: spend $${item.averageMonthlySpend.toFixed(2)}/mo, est savings $${item.estimatedMonthlySavings.toFixed(2)}/mo. ${sanitizeAiText(item.rationale)}`)
       .join('\n')
     : '  - None detected';
 

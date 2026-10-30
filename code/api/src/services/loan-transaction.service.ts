@@ -74,9 +74,9 @@ function mapLoanTransaction(tx: any): LoanTransactionOutput {
     ruleId: tx.ruleId,
     sourceTransactionId: tx.sourceTransactionId,
     linkedAccountId: tx.linkedAccountId,
-    amount: decimalToNumber(tx.amount),
-    posted: tx.posted,
-    description: tx.description,
+    amount: decimalToNumber(tx.sourceTransaction.amount),
+    posted: tx.sourceTransaction.posted,
+    description: tx.sourceTransaction.description,
     createdAt: tx.createdAt,
     sourceTransaction: {
       id: tx.sourceTransaction.id,
@@ -197,7 +197,7 @@ export async function deleteRule(ruleId: string): Promise<void> {
 
 export async function getTransactionsForAccount(accountId: string): Promise<LoanTransactionOutput[]> {
   const transactions = await db.loanTransaction.findMany({
-    where: { linkedAccountId: accountId },
+    where: { linkedAccountId: accountId, sourceTransaction: { status: 'POSTED' } },
     include: {
       sourceTransaction: {
         include: {
@@ -259,6 +259,7 @@ export async function runTrackingForAccount(accountId: string): Promise<number> 
 
   const candidateTransactions = await db.transaction.findMany({
     where: {
+      status: 'POSTED',
       accountId: { in: sourceAccountIds },
       // Loan payments should typically be expenses (negative amounts).
       // Filtering reduces incorrect associations with refunds/income.
