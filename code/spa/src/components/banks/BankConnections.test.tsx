@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { bankApi } = vi.hoisted(() => ({ bankApi: {
   bankConnections: vi.fn(), bankAccounts: vi.fn(), getAccounts: vi.fn(), mapBankAccounts: vi.fn(),
-  bankReview: vi.fn(), commitBankReview: vi.fn(),
+  bankReview: vi.fn(), commitBankReview: vi.fn(), saveBankReviewDraft: vi.fn(), bankQuarantine: vi.fn(), replayBankQuarantine: vi.fn(),
 } }));
 vi.mock('@/lib/api', () => ({ api: bankApi }));
 vi.mock('react-plaid-link', () => ({ usePlaidLink: () => ({ open: vi.fn(), ready: false, error: null }) }));
@@ -34,7 +34,7 @@ describe('bank connection review', () => {
   });
 
   it('requires an explicit transaction decision before cutover', async () => {
-    bankApi.bankReview.mockResolvedValue({ data: { batchId: 'batch', cases: [{ id: 'case', accountName: 'Checking', candidates: [{ id: 'candidate', evidence: {
+    bankApi.bankReview.mockResolvedValue({ data: { batchId: 'batch', draftVersion: 0, cases: [{ id: 'case', accountName: 'Checking', draft: [], candidates: [{ id: 'candidate', evidence: {
       change: { postedDate: '2026-10-29', amount: '-12.34', currency: 'CAD', observedFacts: { description: 'Merchant', payee: null } },
       candidates: [{ id: 'existing-tx', posted: '2026-10-29T00:00:00.000Z', amount: '-12.34', description: 'Existing merchant', payee: null }],
     } }] }] } });
@@ -51,5 +51,34 @@ describe('bank connection review', () => {
       { candidateId: 'candidate', action: 'SAME_TRANSACTION', transactionId: 'existing-tx' },
     ]));
     vi.restoreAllMocks();
+  });
+
+  it('restores and saves an unfinished review without switching providers', async () => {
+    bankApi.bankReview.mockResolvedValue({ data: { batchId: 'batch', draftVersion: 3, cases: [{ id: 'case', accountName: 'Checking',
+      draft: [{ candidateId: 'candidate', action: 'NEW_TRANSACTION', transactionId: null }], candidates: [{ id: 'candidate', evidence: {
+        change: { postedDate: '2026-10-29', amount: '-12.34', currency: 'CAD', observedFacts: { description: 'Merchant', payee: null } },
+        candidates: [],
+      } }] }] } });
+    bankApi.saveBankReviewDraft.mockResolvedValue({ data: { draftVersion: 4 } });
+    const user = userEvent.setup();
+    render(<BankConnections />);
+    await user.click(await screen.findByRole('button', { name: 'Review history' }));
+    expect(await screen.findByLabelText('Match for Merchant 2026-10-29')).toHaveValue('new');
+    await user.click(screen.getByRole('button', { name: 'Save draft' }));
+    await waitFor(() => expect(bankApi.saveBankReviewDraft).toHaveBeenCalledWith('connection', 'batch', 3,
+      [{ candidateId: 'candidate', action: 'NEW_TRANSACTION' }]));
+    expect(bankApi.commitBankReview).not.toHaveBeenCalled();
+  });
+
+  it('queues a reviewed repair for a quarantined transaction', async () => {
+    bankApi.bankQuarantine.mockResolvedValue({ data: [{ id: 'issue', status: 'OPEN', reason: 'AMOUNT_INVALID',
+      record: { name: 'Shop', date: '2026-10-29', amount: null, iso_currency_code: 'CAD' } }] });
+    bankApi.replayBankQuarantine.mockResolvedValue({ data: { jobId: 'job' } });
+    const user = userEvent.setup();
+    render(<BankConnections />);
+    await user.click(await screen.findByRole('button', { name: 'Sync issues' }));
+    await user.type(await screen.findByLabelText('Corrected amount'), '12.34');
+    await user.click(screen.getByRole('button', { name: 'Retry sync' }));
+    await waitFor(() => expect(bankApi.replayBankQuarantine).toHaveBeenCalledWith('connection', 'issue', { amount: 12.34 }));
   });
 });

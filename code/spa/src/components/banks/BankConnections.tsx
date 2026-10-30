@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { usePlaidLink, type PlaidLinkOnSuccessMetadata } from 'react-plaid-link';
-import { api, type BankConnection, type MigrationReview, type PlaidAccountSuggestion, type PlaidLinkAttempt } from '@/lib/api';
+import { api, type BankConnection, type BankQuarantineItem, type MigrationReview, type PlaidAccountSuggestion, type PlaidLinkAttempt } from '@/lib/api';
 import type { Account } from '@/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -40,6 +40,9 @@ export function BankConnections() {
   const [choices, setChoices] = useState<Record<string, string>>({});
   const [localAccounts, setLocalAccounts] = useState<Account[]>([]);
   const [review, setReview] = useState<MigrationReview | null>(null);
+  const [quarantineConnection, setQuarantineConnection] = useState<string | null>(null);
+  const [quarantine, setQuarantine] = useState<BankQuarantineItem[]>([]);
+  const [repairs, setRepairs] = useState<Record<string, { amount?: string; date?: string; name?: string; currency?: string }>>({});
   const [decisions, setDecisions] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
@@ -65,8 +68,15 @@ export function BankConnections() {
 
   const showReview = async (id: string) => {
     const response = await api.bankReview(id);
-    setSelected(id); setReview(response.data); setDecisions({});
+    setSelected(id); setReview(response.data);
+    setDecisions(Object.fromEntries((response.data?.cases ?? []).flatMap((item) => item.draft.map((draft) =>
+      [draft.candidateId, draft.action === 'NEW_TRANSACTION' ? 'new' : draft.transactionId ?? '']))));
     setMessage(response.data ? '' : 'History is still loading or there is no review pending.');
+  };
+
+  const showQuarantine = async (id: string) => {
+    const response = await api.bankQuarantine(id);
+    setQuarantineConnection(id); setQuarantine(response.data); setRepairs({});
   };
 
   const startLink = async (mode: 'NEW' | 'UPDATE', connectionId?: string) => {
@@ -103,7 +113,9 @@ export function BankConnections() {
   const saveAccounts = async () => {
     if (!selected) return;
     const mappings = accounts.filter((account) => choices[account.externalAccountId] && !account.mappedAccountSourceId)
-      .map((account) => choices[account.externalAccountId] === 'new'
+      .map((account) => choices[account.externalAccountId] === 'ignore'
+        ? { externalAccountId: account.externalAccountId, action: 'IGNORE' as const }
+        : choices[account.externalAccountId] === 'new'
         ? { externalAccountId: account.externalAccountId, action: 'CREATE' as const }
         : { externalAccountId: account.externalAccountId, action: 'MAP' as const, accountId: choices[account.externalAccountId] });
     if (!mappings.length) return;
@@ -172,6 +184,13 @@ export function BankConnections() {
             <div className="flex flex-wrap gap-2">
               <Button variant="outline" size="sm" disabled={busy} onClick={() => void showAccounts(connection.id).catch((error: unknown) => setMessage(error instanceof Error ? error.message : 'Unable to load accounts.'))}>Accounts</Button>
               <Button variant="outline" size="sm" disabled={busy} onClick={() => void showReview(connection.id).catch((error: unknown) => setMessage(error instanceof Error ? error.message : 'Unable to load review.'))}>Review history</Button>
+              <Button variant="outline" size="sm" disabled={busy} onClick={() => void showQuarantine(connection.id).catch((error: unknown) => setMessage(error instanceof Error ? error.message : 'Unable to load sync issues.'))}>Sync issues</Button>
+              <Button variant="outline" size="sm" disabled={busy} onClick={() => void run(async () => {
+                const undo = (await api.bankUndoable(connection.id)).data;
+                if (!undo) throw new Error('No published switch is available to undo.');
+                if (!window.confirm(`Undo the most recent switch for ${undo.accounts} account(s)? SimpleFin updates can resume for those accounts.`)) throw new Error('Undo cancelled.');
+                await api.undoBankReview(connection.id, undo.batchId);
+              }, 'Switch undone. SimpleFin updates can resume.')}>Undo switch</Button>
               <Button variant="outline" size="sm" disabled={busy || !!connection.pausedAt} onClick={() => void syncNow(connection.id)}>Sync now</Button>
               {refreshEnabled && <Button variant="outline" size="sm" disabled={busy || !!connection.pausedAt} onClick={() => void refreshFromBank(connection.id)}>Refresh from bank</Button>}
               <Button variant="outline" size="sm" disabled={busy} onClick={() => void startLink('UPDATE', connection.id)}>Reconnect</Button>
@@ -185,16 +204,43 @@ export function BankConnections() {
             </div>
           </div>
         ))}
+        {quarantineConnection && <div className="space-y-3 rounded-md border p-3">
+          <h3 className="font-medium">Sync issues</h3>
+          <p className="text-sm text-muted-foreground">The bank update remains unpublished until invalid records are corrected. Leave a field empty to keep the bank value, or retry without changes after the bank corrects it. Plaid amounts are positive for expenses and negative for income.</p>
+          {quarantine.length === 0 && <p className="text-sm">No open sync issues.</p>}
+          {quarantine.map((item) => <div key={item.id} className="space-y-2 border-t pt-3">
+            <p className="text-sm">{item.reason} · {item.status === 'REPLAYING' ? 'Retry queued' : 'Needs review'}</p>
+            <p className="text-sm">Bank record: {String(item.record?.name ?? 'Unnamed')} · {String(item.record?.date ?? 'date unavailable')} · {String(item.record?.amount ?? 'amount unavailable')} {String(item.record?.iso_currency_code ?? '')}</p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {(['amount', 'date', 'name', 'currency'] as const).map((field) => <label key={field} className="text-sm">Corrected {field}
+                <input className="block w-full rounded-md border bg-background p-2" disabled={busy || item.status !== 'OPEN'}
+                  value={repairs[item.id]?.[field] ?? ''} onChange={(event) => setRepairs((current) => ({ ...current,
+                    [item.id]: { ...current[item.id], [field]: event.target.value } }))} />
+              </label>)}
+            </div>
+            <Button variant="outline" size="sm" disabled={busy || item.status !== 'OPEN'} onClick={() => void run(async () => {
+              const edit = repairs[item.id] ?? {};
+              const amount = edit.amount?.trim() ? Number(edit.amount) : undefined;
+              if (amount !== undefined && !Number.isFinite(amount)) throw new Error('Enter a valid corrected amount.');
+              await api.replayBankQuarantine(quarantineConnection, item.id, {
+                ...(amount !== undefined ? { amount } : {}), ...(edit.date?.trim() ? { date: edit.date.trim() } : {}),
+                ...(edit.name?.trim() ? { name: edit.name.trim() } : {}), ...(edit.currency?.trim() ? { iso_currency_code: edit.currency.trim() } : {}),
+              });
+              await showQuarantine(quarantineConnection);
+            }, 'Retry queued.')}>Retry sync</Button>
+          </div>)}
+        </div>}
         {selected && !review && <div className="space-y-3 rounded-md border p-3">
           <h3 className="font-medium">Map bank accounts</h3>
-          <p className="text-sm text-muted-foreground">Choose an existing account to preserve its history, or create a new one. Existing accounts pause SimpleFin updates until you review the Plaid history. Map every returned account to enable sync.</p>
+          <p className="text-sm text-muted-foreground">Choose an existing account to preserve its history, create a new one, or exclude an account. Existing accounts pause SimpleFin updates until you review the Plaid history. Choose an action for every returned account to enable sync. Once sync advances, excluded accounts cannot be mapped to this connection without losing history; link them separately instead.</p>
           {accounts.length === 0 && <p className="text-sm">No accounts are available yet.</p>}
           {accounts.map((account) => <label key={account.externalAccountId} className="block space-y-1 text-sm">
-            <span>{account.name}{account.mask ? ` · ${account.mask}` : ''}{account.mappedAccountSourceId ? ' (mapped)' : ''}{!account.currency ? ' (currency unavailable)' : ''}</span>
-            {!account.mappedAccountSourceId && <select aria-label={`Mapping for ${account.name}`} disabled={!account.currency} value={choices[account.externalAccountId] ?? ''}
+            <span>{account.name}{account.mask ? ` · ${account.mask}` : ''}{account.mappedAccountSourceId ? ' (mapped)' : ''}{account.ignored ? ' (excluded)' : ''}{!account.currency ? ' (currency unavailable)' : ''}{account.currentBalance === null ? ' (balance unavailable)' : ''}</span>
+            {!account.mappedAccountSourceId && <select aria-label={`Mapping for ${account.name}`} value={choices[account.externalAccountId] ?? ''}
               onChange={(event) => setChoices((current) => ({ ...current, [account.externalAccountId]: event.target.value }))}
               className="block w-full rounded-md border bg-background p-2">
-              <option value="">Choose later</option><option value="new">Create a new account</option>
+              <option value="">Choose later</option><option value="ignore">Do not import this account</option>
+              <option value="new" disabled={!account.currency || account.currentBalance === null}>Create a new account</option>
               {localAccounts.filter((local) => local.currency === account.currency).map((local) => <option key={local.id} value={local.id}>Existing: {local.name} ({local.type})</option>)}
             </select>}
           </label>)}
@@ -216,6 +262,13 @@ export function BankConnections() {
             </label>)}
           </div>)}
           <div className="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" disabled={busy} onClick={() => void run(async () => {
+              const items = Object.entries(decisions).filter(([, value]) => value).map(([candidateId, value]) => value === 'new'
+                ? { candidateId, action: 'NEW_TRANSACTION' as const }
+                : { candidateId, action: 'SAME_TRANSACTION' as const, transactionId: value });
+              const saved = await api.saveBankReviewDraft(selected, review.batchId, review.draftVersion, items);
+              setReview((current) => current?.batchId === review.batchId ? { ...current, draftVersion: saved.data.draftVersion } : current);
+            }, 'Draft saved.')}>Save draft</Button>
             <Button size="sm" disabled={busy || review.cases.some((item) => item.candidates.some((candidate) => !decisions[candidate.id]))} onClick={() => {
               const conflicts = review.cases.flatMap((item) => item.candidates).filter((candidate) => {
                 const match = candidate.evidence.candidates.find((item) => item.id === decisions[candidate.id]);

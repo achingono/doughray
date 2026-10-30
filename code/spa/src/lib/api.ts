@@ -15,16 +15,19 @@ export interface BankConnection {
 export interface PlaidAccountSuggestion {
   externalAccountId: string; name: string; mask: string | null; currency: string | null;
   mappedAccountSourceId: string | null; suggestedAccountId: string | null;
+  ignored: boolean; currentBalance: string | null;
 }
 export interface PlaidLinkAttempt { attemptId: string; mode: 'NEW' | 'UPDATE'; connectionId: string | null; linkToken: string; }
 export interface MigrationReview {
   batchId: string;
-  cases: Array<{ id: string; accountName: string; candidates: Array<{ id: string; evidence: {
+  draftVersion: number;
+  cases: Array<{ id: string; accountName: string; draft: Array<{ candidateId: string; action: 'SAME_TRANSACTION' | 'NEW_TRANSACTION'; transactionId: string | null }>; candidates: Array<{ id: string; evidence: {
     change: { postedDate: string; amount: string; currency: string; observedFacts: { description: string; payee: string | null } };
     candidates: Array<{ id: string; posted: string; amount: string; description: string; payee: string | null }>;
   } }> }>;
 }
 export interface SyncJobResult { id: string; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; errorMessage: string | null; }
+export interface BankQuarantineItem { id: string; status: 'OPEN' | 'REPLAYING'; reason: string; replayCount: number; record: Record<string, unknown> | null; }
 
 function csrfToken(): string | null {
   const cookie = document.cookie.split(';').map((part) => part.trim()).find((part) => part.startsWith('doughray_csrf='));
@@ -69,13 +72,20 @@ export const api = {
     request<{ data: { connection: BankConnection; accounts: PlaidAccountSuggestion[] } }>('/plaid/exchange', { method: 'POST', body: JSON.stringify({ attemptId, publicToken, institutionName, institutionId }) }),
   plaidLinkComplete: (connectionId: string, attemptId: string) => request<{ data: unknown }>(`/plaid/connections/${encodeURIComponent(connectionId)}/link-complete`, { method: 'POST', body: JSON.stringify({ attemptId }) }),
   bankAccounts: (id: string) => request<{ data: { accounts: PlaidAccountSuggestion[] } }>(`/bank-connections/${encodeURIComponent(id)}/accounts`),
-  mapBankAccounts: (id: string, mappings: Array<{ externalAccountId: string; action: 'CREATE' | 'MAP'; accountId?: string }>) =>
+  mapBankAccounts: (id: string, mappings: Array<{ externalAccountId: string; action: 'CREATE' | 'MAP' | 'IGNORE'; accountId?: string }>) =>
     request<{ data: BankConnection }>(`/bank-connections/${encodeURIComponent(id)}/account-mappings`, { method: 'POST', body: JSON.stringify({ mappings }) }),
   syncBank: (id: string) => request<{ data: { jobId: string } }>(`/bank-connections/${encodeURIComponent(id)}/sync`, { method: 'POST' }),
   refreshBank: (id: string) => request<{ data: { jobId: string } }>(`/bank-connections/${encodeURIComponent(id)}/refresh`, { method: 'POST' }),
   pauseBank: (id: string, paused: boolean) => request<{ data: BankConnection }>(`/bank-connections/${encodeURIComponent(id)}/${paused ? 'pause' : 'resume'}`, { method: 'POST' }),
   disconnectBank: (id: string) => request<{ data: { retriable: boolean } }>(`/bank-connections/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   bankReview: (id: string) => request<{ data: MigrationReview | null }>(`/bank-reconciliation/${encodeURIComponent(id)}`),
+  bankUndoable: (id: string) => request<{ data: { batchId: string; accounts: number } | null }>(`/bank-reconciliation/${encodeURIComponent(id)}/undo`),
+  undoBankReview: (id: string, batchId: string) => request<{ data: { accounts: number } }>(`/bank-reconciliation/${encodeURIComponent(id)}/${encodeURIComponent(batchId)}/undo`, { method: 'POST' }),
+  bankQuarantine: (id: string) => request<{ data: BankQuarantineItem[] }>(`/bank-connections/${encodeURIComponent(id)}/quarantine`),
+  replayBankQuarantine: (id: string, itemId: string, patch: { amount?: number; date?: string; name?: string; iso_currency_code?: string }) =>
+    request<{ data: { jobId: string } }>(`/bank-connections/${encodeURIComponent(id)}/quarantine/${encodeURIComponent(itemId)}/replay`, { method: 'POST', body: JSON.stringify({ patch }) }),
+  saveBankReviewDraft: (id: string, batchId: string, version: number, decisions: Array<{ candidateId: string; action: 'SAME_TRANSACTION' | 'NEW_TRANSACTION'; transactionId?: string }>) =>
+    request<{ data: { draftVersion: number } }>(`/bank-reconciliation/${encodeURIComponent(id)}/${encodeURIComponent(batchId)}/draft`, { method: 'PUT', body: JSON.stringify({ version, decisions }) }),
   commitBankReview: (id: string, batchId: string, decisions: Array<{ candidateId: string; action: 'SAME_TRANSACTION' | 'NEW_TRANSACTION'; transactionId?: string }>) =>
     request<{ data: { approved: number } }>(`/bank-reconciliation/${encodeURIComponent(id)}/${encodeURIComponent(batchId)}/commit`, { method: 'POST', body: JSON.stringify({ decisions }) }),
   refreshBankReview: (id: string, batchId: string) => request<void>(`/bank-reconciliation/${encodeURIComponent(id)}/${encodeURIComponent(batchId)}/discard`, { method: 'POST' }),
