@@ -179,6 +179,8 @@ export async function generatePFS(options: { overwriteExisting?: boolean } = {})
     return existing;
   }
 
+  const revision = await prisma.reportRevision.findUniqueOrThrow({ where: { id: 'ledger' } });
+
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
   const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 6, 1);
 
@@ -327,6 +329,7 @@ export async function generatePFS(options: { overwriteExisting?: boolean } = {})
         title: `Personal Financial Statement - ${periodStr}`,
         content: pfsContent as unknown as Prisma.InputJsonValue,
         generatedAt: now,
+        dataRevision: revision.revision,
       },
     });
   }
@@ -338,6 +341,7 @@ export async function generatePFS(options: { overwriteExisting?: boolean } = {})
       type: ReportType.PERSONAL_FINANCIAL_STATEMENT,
       content: pfsContent as unknown as Prisma.InputJsonValue,
       period: periodStr,
+      dataRevision: revision.revision,
     },
   });
 

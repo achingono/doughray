@@ -19,7 +19,7 @@ function parseOverwriteExisting(body: unknown): boolean {
 router.post('/', async (req, res, next) => {
   try {
     const report = await generatePFS({ overwriteExisting: parseOverwriteExisting(req.body) });
-    res.status(201).json({ data: report });
+    res.status(201).json({ data: await getReportById(report.id) ?? report });
   } catch (err) {
     next(err);
   }
@@ -28,7 +28,7 @@ router.post('/', async (req, res, next) => {
 router.post('/expense-analysis', async (req, res, next) => {
   try {
     const report = await generateExpenseAnalysis({ overwriteExisting: parseOverwriteExisting(req.body) });
-    res.status(201).json({ data: report });
+    res.status(201).json({ data: await getReportById(report.id) ?? report });
   } catch (err) {
     next(err);
   }

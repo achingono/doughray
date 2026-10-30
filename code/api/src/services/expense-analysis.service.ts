@@ -344,6 +344,8 @@ export async function generateExpenseAnalysis(options: { overwriteExisting?: boo
   });
   if (existing && !overwriteExisting) return existing;
 
+  const revision = await prisma.reportRevision.findUniqueOrThrow({ where: { id: 'ledger' } });
+
   const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 6, 1));
   const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
   const txRows = await prisma.transaction.findMany({
@@ -437,6 +439,7 @@ export async function generateExpenseAnalysis(options: { overwriteExisting?: boo
         title: `Expense Optimization Analysis - ${period}`,
         content: content as unknown as Prisma.InputJsonValue,
         generatedAt: now,
+        dataRevision: revision.revision,
       },
     });
   }
@@ -447,6 +450,7 @@ export async function generateExpenseAnalysis(options: { overwriteExisting?: boo
       type: ReportType.SPENDING_ANALYSIS,
       content: content as unknown as Prisma.InputJsonValue,
       period,
+      dataRevision: revision.revision,
     },
   });
 }

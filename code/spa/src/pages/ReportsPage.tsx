@@ -422,7 +422,7 @@ export function ReportsPage() {
                         </Button>
                       </div>
                     </div>
-                    <CardDescription>{formatDate(report.generatedAt)} · {report.period}</CardDescription>
+                    <CardDescription>{formatDate(report.generatedAt)} · {report.period}{report.isStale ? ' · Data changed since this report was generated' : ''}</CardDescription>
                   </CardHeader>
                   <CardContent>
                     <div className="grid grid-cols-3 gap-2 text-center">
@@ -469,7 +469,7 @@ export function ReportsPage() {
                         </Button>
                       </div>
                     </div>
-                    <CardDescription>{formatDate(report.generatedAt)} · {report.period}</CardDescription>
+                    <CardDescription>{formatDate(report.generatedAt)} · {report.period}{report.isStale ? ' · Data changed since this report was generated' : ''}</CardDescription>
                   </CardHeader>
                   <CardContent>
                     <div className="grid grid-cols-3 gap-2 text-center">
@@ -513,7 +513,7 @@ export function ReportsPage() {
                       </Button>
                     </div>
                   </div>
-                  <CardDescription>{formatDate(report.generatedAt)} · {report.period}</CardDescription>
+                  <CardDescription>{formatDate(report.generatedAt)} · {report.period}{report.isStale ? ' · Data changed since this report was generated' : ''}</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <ul className="space-y-1">{monthlyContent.highlights.slice(0, 3).map((h) => <li key={h} className="text-sm text-muted-foreground">• {h}</li>)}</ul>

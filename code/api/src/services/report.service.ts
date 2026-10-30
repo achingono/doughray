@@ -10,8 +10,9 @@ export async function getReports(page: number = 1, limit: number = 10) {
     prisma.report.count(),
   ]);
 
+  const revision = await prisma.reportRevision.findUniqueOrThrow({ where: { id: 'ledger' } });
   return {
-    data: reports,
+    data: reports.map((report) => ({ ...report, isStale: report.dataRevision !== revision.revision })),
     pagination: {
       page,
       limit,
@@ -22,7 +23,10 @@ export async function getReports(page: number = 1, limit: number = 10) {
 }
 
 export async function getReportById(id: string) {
-  return prisma.report.findUnique({ where: { id } });
+  const report = await prisma.report.findUnique({ where: { id } });
+  if (!report) return null;
+  const revision = await prisma.reportRevision.findUniqueOrThrow({ where: { id: 'ledger' } });
+  return { ...report, isStale: report.dataRevision !== revision.revision };
 }
 
 export async function deleteReportById(id: string) {

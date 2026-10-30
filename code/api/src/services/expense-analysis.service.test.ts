@@ -5,6 +5,7 @@ const { prismaMock } = vi.hoisted(() => ({
   prismaMock: {
     transaction: { findMany: vi.fn() },
     report: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
+    reportRevision: { findUniqueOrThrow: vi.fn().mockResolvedValue({ revision: 1 }) },
   },
 }));
 

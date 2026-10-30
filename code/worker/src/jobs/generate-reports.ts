@@ -36,6 +36,8 @@ export async function generateMonthlyReport(): Promise<void> {
     return;
   }
 
+  const revision = await prisma.reportRevision.findUniqueOrThrow({ where: { id: 'ledger' } });
+
   // Gather data
   const transactions = await prisma.transaction.findMany({
     where: { status: 'POSTED', posted: { gte: lastMonth, lte: endOfLastMonth } },
@@ -100,6 +102,7 @@ export async function generateMonthlyReport(): Promise<void> {
         type: 'MONTHLY_SUMMARY',
         content: reportContent,
         period,
+        dataRevision: revision.revision,
       },
     });
 

@@ -310,6 +310,7 @@ export interface Report {
   content: ReportContent | PFSContent | SpendingAnalysisContent;
   period: string;
   generatedAt: string;
+  isStale?: boolean;
 }
 
 export interface ReportContent {

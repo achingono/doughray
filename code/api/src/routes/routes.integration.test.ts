@@ -493,7 +493,9 @@ describe('API route integration', () => {
     categoryServiceMock.createCategory.mockResolvedValue({ id: 'c2' });
     categoryServiceMock.updateCategory.mockResolvedValue({ id: 'c2', name: 'Trips' });
     reportServiceMock.getReports.mockResolvedValue({ data: [{ id: 'r1' }], pagination: { page: 1, limit: 10, total: 1, totalPages: 1 } });
-    reportServiceMock.getReportById.mockResolvedValueOnce({ id: 'r1' }).mockResolvedValueOnce(null).mockResolvedValueOnce({ id: 'r1' });
+    reportServiceMock.getReportById.mockResolvedValueOnce({ id: 'r1' }).mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: 'pfs1', type: 'PERSONAL_FINANCIAL_STATEMENT' })
+      .mockResolvedValueOnce({ id: 'sea1', type: 'SPENDING_ANALYSIS' }).mockResolvedValueOnce({ id: 'r1' });
     reportServiceMock.deleteReportById.mockResolvedValue(undefined);
     pfsServiceMock.generatePFS.mockResolvedValue({ id: 'pfs1', type: 'PERSONAL_FINANCIAL_STATEMENT' });
     expenseAnalysisServiceMock.generateExpenseAnalysis.mockResolvedValue({ id: 'sea1', type: 'SPENDING_ANALYSIS' });

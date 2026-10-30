@@ -215,9 +215,16 @@ model Report {
   content     Json
   period      String
   generatedAt DateTime   @default(now())
+  dataRevision Int       @default(-1)
 
   @@index([type])
   @@index([period])
+}
+
+// The database increments this when data used by reports changes.
+model ReportRevision {
+  id       String @id
+  revision Int    @default(0)
 }
 
 model SyncLog {

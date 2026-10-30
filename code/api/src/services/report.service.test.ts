@@ -8,6 +8,7 @@ const { prismaMock } = vi.hoisted(() => ({
       findUnique: vi.fn(),
       delete: vi.fn(),
     },
+    reportRevision: { findUniqueOrThrow: vi.fn().mockResolvedValue({ revision: 2 }) },
   },
 }));
 
@@ -21,20 +22,20 @@ describe('report.service', () => {
   });
 
   it('returns paginated reports', async () => {
-    prismaMock.report.findMany.mockResolvedValue([{ id: 'r1' }, { id: 'r2' }]);
+    prismaMock.report.findMany.mockResolvedValue([{ id: 'r1', dataRevision: 2 }, { id: 'r2', dataRevision: 1 }]);
     prismaMock.report.count.mockResolvedValue(12);
 
     const result = await getReports(2, 5);
 
     expect(result).toEqual({
-      data: [{ id: 'r1' }, { id: 'r2' }],
+      data: [{ id: 'r1', dataRevision: 2, isStale: false }, { id: 'r2', dataRevision: 1, isStale: true }],
       pagination: { page: 2, limit: 5, total: 12, totalPages: 3 },
     });
   });
 
   it('returns report by id', async () => {
-    prismaMock.report.findUnique.mockResolvedValue({ id: 'r1', title: 'Jan report' });
-    await expect(getReportById('r1')).resolves.toEqual({ id: 'r1', title: 'Jan report' });
+    prismaMock.report.findUnique.mockResolvedValue({ id: 'r1', title: 'Jan report', dataRevision: 2 });
+    await expect(getReportById('r1')).resolves.toEqual({ id: 'r1', title: 'Jan report', dataRevision: 2, isStale: false });
   });
 
   it('deletes report by id', async () => {
