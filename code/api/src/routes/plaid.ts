@@ -12,6 +12,7 @@ import { prisma } from '../lib/prisma';
 import { verifyPlaidWebhook } from '../lib/plaid-webhook';
 import type { Prisma } from '@prisma/client';
 import type { IncomingHttpHeaders } from 'http';
+import { createHash } from 'node:crypto';
 
 const router = Router();
 
@@ -110,7 +111,8 @@ router.post('/webhook', async (req, res, next) => {
     if (!Buffer.isBuffer(raw)) {
       throw new AppError(400, 'Raw body is required for webhook verification.', 'WEBHOOK_RAW_BODY_REQUIRED');
     }
-    const verification = await verifyPlaidWebhook(raw, plaidVerificationHeader(req.headers), getPlaidProvider());
+    const signature = plaidVerificationHeader(req.headers);
+    const verification = await verifyPlaidWebhook(raw, signature, getPlaidProvider());
     if (!verification.ok) {
       // Silently drop: malformed payloads receive no discriminating feedback.
       res.status(verification.reason === 'KEY_UNAVAILABLE' ? 503 : 400).json({ error: { message: 'Webhook verification failed.', code: 'WEBHOOK_REJECTED' } });
@@ -129,24 +131,32 @@ router.post('/webhook', async (req, res, next) => {
     const itemId = typeof payload.item_id === 'string' ? payload.item_id : null;
     const computedHash = verification.bodySha256;
 
-    // A body can be identical for distinct events. Persist each verified
-    // delivery and its queued work together; duplicates coalesce at the queue.
-    const { receipt, dispatched } = await prisma.$transaction(async (tx) => {
-    const receipt = await tx.webhookReceipt.create({
+    // Identical bodies can describe distinct events; deduplicate the signed
+    // delivery, not its body. Never persist the JWT itself.
+    const signatureDigest = createHash('sha256').update(signature!).digest('hex');
+    const environment = environmentOrDefault();
+    const { receipt, dispatched, duplicate } = await prisma.$transaction(async (tx) => {
+    const inserted = await tx.webhookReceipt.createMany({
       data: {
         provider: 'PLAID',
-        environment: environmentOrDefault(),
+        environment,
         webhookType,
         webhookCode,
         itemId,
         bodySha256: computedHash,
+        signatureDigest,
         signatureKeyId: verification.keyId,
         verificationState: 'VALID',
         status: 'RECEIVED',
         // Safe projection only: type/code/item id; never token-bearing values.
         payloadSafe: { webhookType, webhookCode, itemId },
       },
+      skipDuplicates: true,
     });
+    const receipt = await tx.webhookReceipt.findUniqueOrThrow({
+      where: { environment_signatureDigest: { environment, signatureDigest } },
+    });
+    if (inserted.count === 0) return { receipt, dispatched: false, duplicate: true };
 
     const dispatched = await dispatchWebhookEvent(tx, webhookType, webhookCode, itemId);
     if (dispatched) {
@@ -160,10 +170,10 @@ router.post('/webhook', async (req, res, next) => {
         data: { status: 'DUPLICATE' },
       });
     }
-    return { receipt, dispatched };
+    return { receipt, dispatched, duplicate: false };
     });
 
-    res.status(200).json({ received: true, receiptId: receipt.id, dispatched });
+    res.status(200).json({ received: true, receiptId: receipt.id, dispatched, duplicate });
   } catch (err) {
     next(err);
   }
@@ -234,10 +244,11 @@ async function recordItemHealthEvent(tx: Prisma.TransactionClient, itemId: strin
     : code === 'ERROR' ? 'ERROR' : null;
   if (status === null) return;
 
-  await tx.bankConnection.update({
-    where: { id: connection.id },
+  await tx.bankConnection.updateMany({
+    where: { id: connection.id, status: { not: 'DISCONNECTED' } },
     data: {
       status,
+      version: { increment: 1 },
       healthDetail: `Provider reported ITEM ${code.toLowerCase()}`,
       lastErrorAt: new Date(),
       lastErrorCode: code,

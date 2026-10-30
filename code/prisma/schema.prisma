@@ -967,6 +967,7 @@ model WebhookReceipt {
   webhookCode       String
   itemId            String?
   bodySha256        String
+  signatureDigest   String?
   signatureKeyId    String?
   verificationState String
   status            WebhookReceiptStatus @default(RECEIVED)
@@ -976,6 +977,7 @@ model WebhookReceipt {
   dispatchedAt      DateTime?
 
   @@index([bodySha256])
+  @@unique([environment, signatureDigest])
   @@index([status])
   @@index([receivedAt])
 }
