@@ -669,6 +669,7 @@ model BankConnection {
   updatedAt                  DateTime          @updatedAt
 
   accountSources      AccountSource[]
+  ignoredAccounts     IgnoredBankAccount[]
   linkAttempts        LinkAttempt[]
   syncJobs            SyncJob[]
   syncBatches         SyncBatch[]
@@ -679,6 +680,17 @@ model BankConnection {
   @@unique([provider, environment, externalItemId])
   @@index([provider, environment])
   @@index([status])
+}
+
+// Explicitly excluded provider accounts do not block other accounts in an Item.
+model IgnoredBankAccount {
+  id                String         @id @default(cuid())
+  connectionId      String
+  connection        BankConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  externalAccountId String
+  createdAt         DateTime       @default(now())
+
+  @@unique([connectionId, externalAccountId])
 }
 
 model LinkAttempt {

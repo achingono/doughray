@@ -53,6 +53,14 @@ export class NormalizationError extends Error {
   }
 }
 
+export class QuarantinedProviderRecord extends NormalizationError {
+  cursorStart: string | null = null;
+  connectionVersion: number | null = null;
+  constructor(error: NormalizationError, public evidence: import('./types').PlaidRecordEvidence) {
+    super(error.reason, 'Invalid provider record.');
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Money
 // ---------------------------------------------------------------------------

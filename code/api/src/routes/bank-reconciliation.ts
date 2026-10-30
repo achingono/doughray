@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { AppError } from '../middleware/error-handler';
-import { commitMigrationReview, discardMigrationReview, getMigrationReview } from '../services/bank-reconciliation.service';
+import { commitMigrationReview, discardMigrationReview, getMigrationReview, saveMigrationDraft, getUndoableMigration, undoMigrationReview } from '../services/bank-reconciliation.service';
 
 const router = Router();
 const decisionsSchema = z.object({ decisions: z.array(z.object({ candidateId: z.string().min(1),
@@ -9,6 +9,19 @@ const decisionsSchema = z.object({ decisions: z.array(z.object({ candidateId: z.
 
 router.get('/:connectionId', async (req, res, next) => {
   try { res.json({ data: await getMigrationReview(req.params.connectionId) }); } catch (error) { next(error); }
+});
+router.get('/:connectionId/undo', async (req, res, next) => {
+  try { res.json({ data: await getUndoableMigration(req.params.connectionId) }); } catch (error) { next(error); }
+});
+router.post('/:connectionId/:batchId/undo', async (req, res, next) => {
+  try { res.json({ data: await undoMigrationReview(req.params.connectionId, req.params.batchId) }); } catch (error) { next(error); }
+});
+router.put('/:connectionId/:batchId/draft', async (req, res, next) => {
+  try {
+    const parsed = decisionsSchema.extend({ version: z.number().int().nonnegative() }).safeParse(req.body);
+    if (!parsed.success) throw new AppError(400, 'Invalid reconciliation draft.', 'VALIDATION_ERROR');
+    res.json({ data: await saveMigrationDraft(req.params.connectionId, req.params.batchId, parsed.data.version, parsed.data.decisions) });
+  } catch (error) { next(error); }
 });
 router.post('/:connectionId/:batchId/commit', async (req, res, next) => {
   try {

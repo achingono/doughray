@@ -20,7 +20,10 @@ import {
   type ProviderLinkTokenResult,
   type ProviderSyncPage,
   type ProviderTransactionFacts,
+  type PlaidRecordEvidence,
+  type PlaidRecordRepair,
 } from './types';
+import { createHash } from 'node:crypto';
 import {
   convertInflowPositive,
   convertBalanceForAccountClass,
@@ -30,6 +33,8 @@ import {
   validateDateOnly,
   dateOnlyToUtcStorage,
   NormalizationError,
+  NORMALIZATION_VERSION,
+  QuarantinedProviderRecord,
 } from './normalization';
 import type { PlaidEnvName, PlaidSettings } from './config';
 
@@ -216,10 +221,11 @@ export class PlaidProvider {
   // Accounts & balances
   // ------------------------------------------------------------------
 
-  async listAccounts(accessToken: string): Promise<ProviderAccountSnapshot[]> {
+  async listAccounts(accessToken: string, excludedAccountIds: string[] = []): Promise<ProviderAccountSnapshot[]> {
     try {
       const response = await this.client().accountsGet({ access_token: accessToken });
-      return response.data.accounts.map((account) => mapPlaidAccount(account, this.now));
+      const excluded = new Set(excludedAccountIds);
+      return response.data.accounts.filter((account) => !excluded.has(account.account_id)).map((account) => mapPlaidAccount(account, this.now));
     } catch (failure) {
       throw this.wrapError('accountsGet', failure);
     }
@@ -230,7 +236,7 @@ export class PlaidProvider {
   // ------------------------------------------------------------------
 
   /** One `/transactions/sync` page. Callers drive pagination until hasMore=false. */
-  async syncPage(input: { accessToken: string; cursor: string | null; count?: number }): Promise<ProviderSyncPage> {
+  async syncPage(input: { accessToken: string; cursor: string | null; count?: number; repairs?: PlaidRecordRepair[]; excludedAccountIds?: string[] }): Promise<ProviderSyncPage> {
     try {
       const response = await this.client().transactionsSync({
         access_token: input.accessToken,
@@ -238,7 +244,7 @@ export class PlaidProvider {
         count: input.count ?? SYNC_PAGE_COUNT,
         options: { include_personal_finance_category: true },
       });
-      return mapSyncResponse(response.data as TransactionsSyncResponse);
+      return mapSyncResponse(response.data as TransactionsSyncResponse, input.repairs ?? [], new Set(input.excludedAccountIds ?? []));
     } catch (failure) {
       throw this.wrapError('transactionsSync', failure);
     }
@@ -319,8 +325,15 @@ function mapPlaidAccount(account: AccountBase, now: () => Date): ProviderAccount
   const available = account.balances?.available ?? null;
   const formatBalance = (value: number | null): string | null => {
     if (value === null) return null;
-    return convertBalanceForAccountClass(trimNumberToDecimalString(value), mapping.accountType);
+    try { return convertBalanceForAccountClass(trimNumberToDecimalString(value), mapping.accountType); }
+    catch (error) { if (error instanceof NormalizationError) return null; throw error; }
   };
+  const currentBalance = formatBalance(current);
+  let availableBalance: string | null = null;
+  if (available !== null) {
+    try { availableBalance = trimNumberToDecimalString(available); }
+    catch (error) { if (!(error instanceof NormalizationError)) throw error; }
+  }
 
   const observedAt = account.balances?.last_updated_datetime
     ? new Date(account.balances.last_updated_datetime)
@@ -334,12 +347,12 @@ function mapPlaidAccount(account: AccountBase, now: () => Date): ProviderAccount
     rawType: account.type ?? null,
     rawSubtype: account.subtype ?? null,
     currency,
-    currentBalance: formatBalance(current),
+    currentBalance,
     // Available credit is buying power, not a liability balance.
-    availableBalance: available === null ? null : trimNumberToDecimalString(available),
+    availableBalance,
     balanceObservedAt: observedAt,
     /** Balances optional per institution; `current === null` means unavailable. */
-    unavailable: account.balances?.current === null,
+    unavailable: currentBalance === null,
   };
 }
 
@@ -362,15 +375,45 @@ function trimNumberToDecimalString(value: number): string {
   return exact;
 }
 
-function mapSyncResponse(response: TransactionsSyncResponse): ProviderSyncPage {
+function recordEvidence(tx: Transaction, changeType: 'ADDED' | 'MODIFIED'): PlaidRecordEvidence {
+  // Only fields required for normalization and review are retained; do not
+  // persist the full Plaid response or any access credentials.
+  const clip = (value: unknown) => typeof value === 'string' ? value.slice(0, 2048) : value ?? null;
+  const original = { account_id: tx.account_id ?? null, transaction_id: tx.transaction_id ?? null, amount: tx.amount ?? null,
+    date: tx.date ?? null, authorized_date: tx.authorized_date ?? null, name: tx.name ?? null, merchant_name: tx.merchant_name ?? null,
+    original_description: tx.original_description ?? null, pending: tx.pending ?? null, pending_transaction_id: tx.pending_transaction_id ?? null,
+    iso_currency_code: tx.iso_currency_code ?? null, unofficial_currency_code: tx.unofficial_currency_code ?? null,
+    personal_finance_category: tx.personal_finance_category ? {
+      primary: tx.personal_finance_category.primary ?? null, detailed: tx.personal_finance_category.detailed ?? null,
+      confidence_level: tx.personal_finance_category.confidence_level ?? null,
+    } : null };
+  const record = Object.fromEntries(Object.entries(original).map(([key, value]) => [key, clip(value)]));
+  const fingerprint = createHash('sha256').update(JSON.stringify({ changeType, record: original })).digest('hex');
+  return { fingerprint, changeType, record };
+}
+
+function mapSyncResponse(response: TransactionsSyncResponse, repairs: PlaidRecordRepair[], excluded: Set<string>): ProviderSyncPage {
   const changes: NormalizedTransactionChange[] = [];
+  const map = (tx: Transaction, changeType: 'ADDED' | 'MODIFIED') => {
+    const evidence = recordEvidence(tx, changeType);
+    const repair = repairs.find((item) => item.fingerprint === evidence.fingerprint && item.ruleVersion === NORMALIZATION_VERSION);
+    try {
+      return { ...mapPlaidTransaction({ ...tx, ...(repair?.patch ?? {}) }, changeType), sourceEvidence: evidence };
+    } catch (error) {
+      if (error instanceof NormalizationError) throw new QuarantinedProviderRecord(error, evidence);
+      throw error;
+    }
+  };
   for (const tx of response.added) {
-    changes.push(mapPlaidTransaction(tx, 'ADDED'));
+    if (excluded.has(tx.account_id)) continue;
+    changes.push(map(tx, 'ADDED'));
   }
   for (const tx of response.modified) {
-    changes.push(mapPlaidTransaction(tx, 'MODIFIED'));
+    if (excluded.has(tx.account_id)) continue;
+    changes.push(map(tx, 'MODIFIED'));
   }
   for (const removed of response.removed) {
+    if (removed.account_id && excluded.has(removed.account_id)) continue;
     changes.push(mapRemovedTransaction(removed));
   }
 
@@ -380,7 +423,7 @@ function mapSyncResponse(response: TransactionsSyncResponse): ProviderSyncPage {
     hasMore: response.has_more,
     transactionsUpdateStatus: response.transactions_update_status ?? null,
     accountsSnapshot: Array.isArray(response.accounts) && response.accounts.length > 0
-      ? response.accounts.map((account) => mapPlaidAccount(account, () => new Date()))
+      ? response.accounts.filter((account) => !excluded.has(account.account_id)).map((account) => mapPlaidAccount(account, () => new Date()))
       : null,
   };
 }
@@ -417,7 +460,7 @@ export function mapPlaidTransaction(
     providerStatus: tx.pending ? 'PENDING' : 'POSTED',
     // Amount re-read once from the exact 2dp form so both fields share precision.
     amount: convertInflowPositive(trimNumberToDecimalString(tx.amount)),
-    currency: tx.iso_currency_code ?? tx.unofficial_currency_code ?? '',
+    currency: validateCurrency(tx.iso_currency_code ?? tx.unofficial_currency_code),
     postedDate: validateDateOnly(tx.date) ?? '',
     authorizedDate: validateDateOnly(tx.authorized_date ?? null),
     pendingExternalId: !tx.pending ? tx.pending_transaction_id ?? null : null,

@@ -1,16 +1,19 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { BankProviderErrorKind, bankProviderError, PlaidProvider, encryptSecret, enqueueBankSync, type NormalizedTransactionChange, type ProviderSyncPage } from '@doughray/shared';
+import { BankProviderErrorKind, bankProviderError, PlaidProvider, encryptSecret, decryptSecret, encryptRecoverySecret, decryptRecoverySecret, rotateBankTokenKeys, enqueueBankSync, type NormalizedTransactionChange, type ProviderSyncPage } from '@doughray/shared';
 import prisma from '../lib/prisma';
-import { processNextSyncJob } from './sync-queue';
-import { commitMigrationReview, discardMigrationReview, getMigrationReview } from '../../../api/src/services/bank-reconciliation.service';
+import { claimNextSyncJob, processNextSyncJob } from './sync-queue';
+import { commitMigrationReview, discardMigrationReview, getMigrationReview, saveMigrationDraft, getUndoableMigration, undoMigrationReview } from '../../../api/src/services/bank-reconciliation.service';
 import { syncConnection } from './sync-connection';
+import { getReportById, getReports } from '../../../api/src/services/report.service';
 import { prisma as apiPrisma } from '../../../api/src/lib/prisma';
-import { applyAccountMappings, disconnectConnection } from '../../../api/src/services/plaid-link.service';
+import { applyAccountMappings, disconnectConnection, inventorySuggestions } from '../../../api/src/services/plaid-link.service';
 import express from 'express';
 import request from 'supertest';
 import { exportJWK, generateKeyPair, SignJWT } from 'jose';
 import plaidRoutes from '../../../api/src/routes/plaid';
+import bankRoutes from '../../../api/src/routes/bank-connections';
+import { PlaidApi } from 'plaid';
 import { clearVerificationKeyCache, bodySha256 } from '../../../api/src/lib/plaid-webhook';
 import { errorHandler } from '../../../api/src/middleware/error-handler';
 
@@ -38,6 +41,30 @@ databaseTests('Plaid sync with PostgreSQL', () => {
   const page = (changes: NormalizedTransactionChange[], cursor: string): ProviderSyncPage => ({
     changes, nextCursor: cursor, hasMore: false, accountsSnapshot: null, transactionsUpdateStatus: 'HISTORICAL_UPDATE_COMPLETE',
   });
+  async function processAvailableJob(targetConnectionId = connectionId) {
+    const target = await prisma.syncJob.findFirst({ where: {
+      connectionId: targetConnectionId, jobType: 'CONNECTION_SYNC', status: 'QUEUED',
+    } });
+    if (!target) return false;
+    for (let attempt = 0; attempt < 50; attempt++) {
+      // These fixtures exercise provider work, not the independently queued AI job.
+      await prisma.syncJob.deleteMany({ where: { jobType: 'CATEGORIZE', status: 'QUEUED' } });
+      const processed = await processNextSyncJob();
+      const current = await prisma.syncJob.findUniqueOrThrow({ where: { id: target.id } });
+      if (current.status !== 'QUEUED' || current.attempts > target.attempts ||
+          current.startedAt?.getTime() !== target.startedAt?.getTime()) return true;
+      if (!processed) await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    return false;
+  }
+  async function claimAvailableJob() {
+    for (let attempt = 0; attempt < 30; attempt++) {
+      const job = await claimNextSyncJob();
+      if (job) return job;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    return null;
+  }
   async function runSync(changes: NormalizedTransactionChange[], cursor: string) {
     vi.spyOn(PlaidProvider.prototype, 'syncPage').mockResolvedValue(page(changes, cursor));
     vi.spyOn(PlaidProvider.prototype, 'listAccounts').mockResolvedValue([]);
@@ -95,7 +122,7 @@ databaseTests('Plaid sync with PostgreSQL', () => {
     await prisma.syncJob.delete({ where: { id: jobs[0].jobId } });
   });
 
-  it('accepts repeated verified webhooks without losing dispatch', async () => {
+  it('deduplicates concurrent signed deliveries but dispatches distinct signatures with identical bodies', async () => {
     const { publicKey, privateKey } = await generateKeyPair('ES256');
     const jwk = await exportJWK(publicKey);
     vi.spyOn(PlaidProvider.prototype, 'getWebhookVerificationKey').mockResolvedValue({ key: { ...jwk, kid: 'fixture-key', alg: 'ES256' } } as never);
@@ -106,15 +133,106 @@ databaseTests('Plaid sync with PostgreSQL', () => {
     const signature = await new SignJWT({ request_body_sha256: bodySha256(Buffer.from(raw)) })
       .setProtectedHeader({ alg: 'ES256', kid: 'fixture-key' }).setIssuedAt().sign(privateKey);
     await request(app).post('/api/plaid/webhook').set('Content-Type', 'application/json').send(raw).expect(400);
-    for (let i = 0; i < 2; i++) {
-      await request(app).post('/api/plaid/webhook').set('Content-Type', 'application/json')
-        .set('Plaid-Verification', signature).send(raw).expect(200);
-    }
+    const responses = await Promise.all(Array.from({ length: 5 }, () =>
+      request(app).post('/api/plaid/webhook').set('Content-Type', 'application/json')
+        .set('Plaid-Verification', signature).send(raw).expect(200)));
+    expect(responses.filter((response) => !response.body.duplicate)).toHaveLength(1);
+    expect(new Set(responses.map((response) => response.body.receiptId)).size).toBe(1);
+    expect(await prisma.webhookReceipt.count({ where: { bodySha256: bodySha256(Buffer.from(raw)), status: 'DISPATCHED' } })).toBe(1);
+    expect(await prisma.syncJob.count({ where: { connectionId, status: 'QUEUED', jobType: 'CONNECTION_SYNC' } })).toBe(1);
+    await prisma.syncJob.deleteMany({ where: { connectionId, status: 'QUEUED' } });
+    const secondSignature = await new SignJWT({ request_body_sha256: bodySha256(Buffer.from(raw)) })
+      .setProtectedHeader({ alg: 'ES256', kid: 'fixture-key' }).setIssuedAt().sign(privateKey);
+    expect(secondSignature).not.toBe(signature);
+    const second = await request(app).post('/api/plaid/webhook').set('Content-Type', 'application/json')
+      .set('Plaid-Verification', secondSignature).send(raw).expect(200);
+    expect(second.body.duplicate).toBe(false);
     expect(await prisma.webhookReceipt.count({ where: { bodySha256: bodySha256(Buffer.from(raw)), status: 'DISPATCHED' } })).toBe(2);
     expect(await prisma.syncJob.count({ where: { connectionId, status: 'QUEUED', jobType: 'CONNECTION_SYNC' } })).toBe(1);
     await prisma.webhookReceipt.deleteMany({ where: { bodySha256: bodySha256(Buffer.from(raw)) } });
     await prisma.syncJob.deleteMany({ where: { connectionId, status: 'QUEUED' } });
     clearVerificationKeyCache(); vi.restoreAllMocks();
+  });
+
+  it('fences an in-flight sync when consent is revoked', async () => {
+    const { publicKey, privateKey } = await generateKeyPair('ES256');
+    const jwk = await exportJWK(publicKey);
+    vi.spyOn(PlaidProvider.prototype, 'getWebhookVerificationKey').mockResolvedValue({ key: { ...jwk, kid: 'revocation-key', alg: 'ES256' } } as never);
+    let signalStarted!: () => void;
+    let releaseSync!: () => void;
+    const started = new Promise<void>((resolve) => { signalStarted = resolve; });
+    const release = new Promise<void>((resolve) => { releaseSync = resolve; });
+    const transactionId = `revoked-${suffix}`;
+    vi.spyOn(PlaidProvider.prototype, 'syncPage').mockImplementation(async () => {
+      signalStarted();
+      await release;
+      return page([change(transactionId, 'POSTED')], 'must-not-commit');
+    });
+    vi.spyOn(PlaidProvider.prototype, 'listAccounts').mockResolvedValue([]);
+    const before = await prisma.bankConnection.findUniqueOrThrow({ where: { id: connectionId } });
+    const job = await enqueueBankSync(prisma, { jobType: 'CONNECTION_SYNC', trigger: 'MANUAL', connectionId });
+    const claimed = await claimAvailableJob();
+    expect(claimed?.id).toBe(job.jobId);
+    const processing = syncConnection(claimed!);
+    await started;
+    const raw = JSON.stringify({ webhook_type: 'ITEM', webhook_code: 'USER_PERMISSION_REVOKED', item_id: suffix });
+    const signature = await new SignJWT({ request_body_sha256: bodySha256(Buffer.from(raw)) })
+      .setProtectedHeader({ alg: 'ES256', kid: 'revocation-key' }).setIssuedAt().sign(privateKey);
+    const app = express();
+    app.use('/api/plaid/webhook', express.raw({ type: 'application/json' }));
+    app.use(express.json()); app.use('/api/plaid', plaidRoutes); app.use(errorHandler);
+    try {
+      await request(app).post('/api/plaid/webhook').set('Content-Type', 'application/json')
+        .set('Plaid-Verification', signature).send(raw).expect(200);
+    } finally {
+      releaseSync();
+    }
+    await expect(processing).rejects.toThrow('Connection changed before publication.');
+    const after = await prisma.bankConnection.findUniqueOrThrow({ where: { id: connectionId } });
+    expect(after.status).toBe('AUTH_REQUIRED');
+    expect(after.version).toBe(before.version + 1);
+    expect(after.transactionCursor).toBe(before.transactionCursor);
+    expect(await prisma.transactionSource.count({ where: { externalTransactionId: transactionId } })).toBe(0);
+    await prisma.syncJob.delete({ where: { id: job.jobId } });
+    await prisma.webhookReceipt.deleteMany({ where: { bodySha256: bodySha256(Buffer.from(raw)) } });
+    await prisma.bankConnection.update({ where: { id: connectionId }, data: { status: 'HEALTHY', healthDetail: null } });
+    clearVerificationKeyCache(); vi.restoreAllMocks();
+  });
+
+  it('commits categorization work with the ledger, even if the worker stops before completing the job', async () => {
+    const transactionId = `publication-${suffix}`;
+    const before = await prisma.bankConnection.findUniqueOrThrow({ where: { id: connectionId } });
+    vi.spyOn(PlaidProvider.prototype, 'syncPage').mockResolvedValue(page([change(transactionId, 'POSTED')], 'publication-cursor'));
+    vi.spyOn(PlaidProvider.prototype, 'listAccounts').mockResolvedValue([]);
+    const queued = await enqueueBankSync(prisma, { jobType: 'CONNECTION_SYNC', trigger: 'MANUAL', connectionId });
+    const job = await claimAvailableJob();
+    expect(job?.id).toBe(queued.jobId);
+    await syncConnection(job!);
+    expect((await prisma.syncJob.findUniqueOrThrow({ where: { id: queued.jobId } })).status).toBe('RUNNING');
+    expect((await prisma.bankConnection.findUniqueOrThrow({ where: { id: connectionId } })).transactionCursor).toBe('publication-cursor');
+    expect(await prisma.transactionSource.count({ where: { externalTransactionId: transactionId } })).toBe(1);
+    expect(await prisma.syncJob.count({ where: { jobType: 'CATEGORIZE', status: 'QUEUED' } })).toBe(1);
+    await prisma.syncJob.deleteMany({ where: { OR: [{ id: queued.jobId }, { jobType: 'CATEGORIZE', status: 'QUEUED' }] } });
+    const source = await prisma.transactionSource.findFirstOrThrow({ where: { externalTransactionId: transactionId } });
+    await prisma.transaction.delete({ where: { id: source.transactionId } });
+    await prisma.bankConnection.update({ where: { id: connectionId }, data: { transactionCursor: before.transactionCursor } });
+    vi.restoreAllMocks();
+  });
+
+  it('does not enqueue categorization when ledger publication rolls back', async () => {
+    const before = await prisma.bankConnection.findUniqueOrThrow({ where: { id: connectionId } });
+    vi.spyOn(PlaidProvider.prototype, 'syncPage').mockResolvedValue(page([
+      { ...change(`unmapped-${suffix}`, 'POSTED'), externalAccountId: `unmapped-${suffix}` },
+    ], 'must-roll-back'));
+    vi.spyOn(PlaidProvider.prototype, 'listAccounts').mockResolvedValue([]);
+    const queued = await enqueueBankSync(prisma, { jobType: 'CONNECTION_SYNC', trigger: 'MANUAL', connectionId });
+    const job = await claimAvailableJob();
+    expect(job?.id).toBe(queued.jobId);
+    await expect(syncConnection(job!)).rejects.toThrow('Map all bank accounts');
+    expect((await prisma.bankConnection.findUniqueOrThrow({ where: { id: connectionId } })).transactionCursor).toBe(before.transactionCursor);
+    expect(await prisma.syncJob.count({ where: { jobType: 'CATEGORIZE', status: 'QUEUED' } })).toBe(0);
+    await prisma.syncJob.delete({ where: { id: queued.jobId } });
+    vi.restoreAllMocks();
   });
 
   it('preserves user decisions through pending, posting and removal', async () => {
@@ -131,6 +249,49 @@ databaseTests('Plaid sync with PostgreSQL', () => {
     expect(await prisma.transaction.count({ where: { accountId } })).toBe(1);
     expect((await runSync([{ ...removed, externalTransactionId: postedId }], 'cursor-3')).status).toBe('SUCCEEDED');
     expect((await prisma.transaction.findUniqueOrThrow({ where: { id: pending.id } })).status).toBe('REMOVED');
+  });
+
+  it('preserves pending identity and edits when removal and posting arrive in separate batches', async () => {
+    const pendingId = `separate-pending-${suffix}`;
+    const postedId = `separate-posted-${suffix}`;
+    expect((await runSync([change(pendingId, 'PENDING')], 'separate-pending')).status).toBe('SUCCEEDED');
+    const pendingSource = await prisma.transactionSource.findFirstOrThrow({ where: { externalTransactionId: pendingId } });
+    await prisma.transaction.update({ where: { id: pendingSource.transactionId }, data: {
+      categoryId, isReviewed: true, categoryOwnership: 'USER',
+    } });
+    const removed = { ...change(pendingId, 'PENDING'), changeType: 'REMOVED' as const, providerStatus: 'REMOVED' };
+    expect((await runSync([removed], 'separate-removed')).status).toBe('SUCCEEDED');
+    expect((await prisma.transaction.findUniqueOrThrow({ where: { id: pendingSource.transactionId } })).status).toBe('REMOVED');
+    expect((await runSync([change(postedId, 'POSTED', pendingId)], 'separate-posted')).status).toBe('SUCCEEDED');
+    expect(await prisma.transaction.findUniqueOrThrow({ where: { id: pendingSource.transactionId } })).toMatchObject({
+      status: 'POSTED', categoryId, isReviewed: true, categoryOwnership: 'USER',
+    });
+    expect((await prisma.transactionSource.findFirstOrThrow({ where: { externalTransactionId: postedId } })).transactionId)
+      .toBe(pendingSource.transactionId);
+  });
+
+  it('removes a transaction from totals when Plaid removes it despite an active historical alias', async () => {
+    const externalId = `authoritative-${suffix}`;
+    expect((await runSync([change(externalId, 'POSTED')], 'alias-created')).status).toBe('SUCCEEDED');
+    const plaidSource = await prisma.transactionSource.findFirstOrThrow({ where: { externalTransactionId: externalId } });
+    const legacyConnection = await prisma.bankConnection.create({ data: {
+      provider: 'SIMPLEFIN', environment: 'PRODUCTION', externalItemId: `legacy-alias-${suffix}`,
+    } });
+    try {
+      const legacySource = await prisma.accountSource.create({ data: {
+        connectionId: legacyConnection.id, accountId, externalAccountId: `legacy-account-${suffix}`, currency: 'CAD', status: 'PAUSED',
+      } });
+      const alias = await prisma.transactionSource.create({ data: {
+        accountSourceId: legacySource.id, transactionId: plaidSource.transactionId,
+        externalTransactionId: `legacy-transaction-${suffix}`, observedFacts: {}, status: 'ACTIVE',
+      } });
+      const removed = { ...change(externalId, 'POSTED'), changeType: 'REMOVED' as const, providerStatus: 'REMOVED' };
+      expect((await runSync([removed], 'alias-removed')).status).toBe('SUCCEEDED');
+      expect((await prisma.transaction.findUniqueOrThrow({ where: { id: plaidSource.transactionId } })).status).toBe('REMOVED');
+      expect((await prisma.transactionSource.findUniqueOrThrow({ where: { id: alias.id } })).status).toBe('ACTIVE');
+    } finally {
+      await prisma.bankConnection.delete({ where: { id: legacyConnection.id } });
+    }
   });
 
   it('rolls back cursor and earlier changes when an account is unmapped', async () => {
@@ -153,6 +314,10 @@ databaseTests('Plaid sync with PostgreSQL', () => {
     const old = await prisma.transaction.create({ data: { externalId: `simplefin-transaction-${suffix}`, accountId: legacy.id,
       amount: '-12.34', posted: new Date('2026-10-29T00:00:00Z'), description: 'Existing merchant',
       categoryId, isReviewed: true, categoryOwnership: 'USER' } });
+    const differentAmount = await prisma.transaction.create({ data: { externalId: `different-amount-${suffix}`, accountId: legacy.id,
+      amount: '-88.00', posted: new Date('2026-10-29T00:00:00Z'), description: 'Existing merchant' } });
+    const differentCurrency = await prisma.transaction.create({ data: { externalId: `different-currency-${suffix}`, accountId: legacy.id,
+      amount: '-12.34', posted: new Date('2026-10-29T00:00:00Z'), description: 'Existing merchant', isoCurrencyCode: 'USD' } });
     const pendingLegacy = { ...change(`legacy-pending-${suffix}`, 'PENDING'), externalAccountId: `legacy-${suffix}` };
     const candidate = { ...change(`legacy-plaid-${suffix}`, 'POSTED', pendingLegacy.externalTransactionId), externalAccountId: `legacy-${suffix}` };
     const repeated = { ...change(`legacy-plaid-repeat-${suffix}`, 'POSTED'), externalAccountId: `legacy-${suffix}` };
@@ -161,7 +326,19 @@ databaseTests('Plaid sync with PostgreSQL', () => {
     expect((await prisma.bankConnection.findUniqueOrThrow({ where: { id: connectionId } })).transactionCursor).toBe(before.transactionCursor);
     const review = await getMigrationReview(connectionId);
     expect(review?.cases[0].candidates[0].evidence.candidates.map((item) => item.id)).toContain(old.id);
+    expect(review?.cases[0].candidates[0].evidence.candidates.map((item) => item.id)).not.toContain(differentAmount.id);
+    expect(review?.cases[0].candidates[0].evidence.candidates.map((item) => item.id)).not.toContain(differentCurrency.id);
+    await prisma.transaction.deleteMany({ where: { id: { in: [differentAmount.id, differentCurrency.id] } } });
     const reviewedCandidates = review!.cases[0].candidates;
+    const draft = [{ candidateId: reviewedCandidates[0].id, action: 'SAME_TRANSACTION' as const, transactionId: old.id }];
+    const draftAttempts = await Promise.allSettled([
+      saveMigrationDraft(connectionId, review!.batchId, review!.draftVersion, draft),
+      saveMigrationDraft(connectionId, review!.batchId, review!.draftVersion, draft),
+    ]);
+    expect(draftAttempts.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    const reopened = await getMigrationReview(connectionId);
+    expect(reopened!.cases[0].draft).toEqual(draft);
+    expect(reopened!.draftVersion).toBe(review!.draftVersion + 1);
     await expect(commitMigrationReview(connectionId, review!.batchId, reviewedCandidates.map((item) => ({ candidateId: item.id,
       action: 'SAME_TRANSACTION' as const, transactionId: old.id })))).rejects.toThrow('distinct suggested match');
     expect((await prisma.account.findUniqueOrThrow({ where: { id: legacy.id } })).ingestionState).toBe('MIGRATING');
@@ -170,17 +347,13 @@ databaseTests('Plaid sync with PostgreSQL', () => {
       { candidateId: reviewedCandidates[0].id, action: 'SAME_TRANSACTION', transactionId: old.id },
       { candidateId: reviewedCandidates[1].id, action: 'NEW_TRANSACTION' },
     ]);
+    expect(await prisma.reconciliationDecision.count({ where: { caseId: review!.cases[0].id, appliedAt: null } })).toBe(0);
     expect((await prisma.account.findUniqueOrThrow({ where: { id: legacy.id } })).ingestionState).toBe('ACTIVE');
     // Plaid may change while the owner reviews history. Publication must use
     // the approved snapshot before asking Plaid for subsequent changes.
     const fetch = vi.spyOn(PlaidProvider.prototype, 'syncPage').mockResolvedValue(page([], 'later-cursor'));
     vi.spyOn(PlaidProvider.prototype, 'listAccounts').mockResolvedValue([]);
-    let published = false;
-    for (let retry = 0; retry < 20 && !published; retry++) {
-      published = await processNextSyncJob();
-      if (!published) await new Promise((resolve) => setTimeout(resolve, 20));
-    }
-    expect(published).toBe(true);
+    expect(await processAvailableJob()).toBe(true);
     expect(fetch).not.toHaveBeenCalled();
     expect(await prisma.transaction.count({ where: { accountId: legacy.id } })).toBe(2);
     expect((await prisma.syncBatch.findUniqueOrThrow({ where: { id: review!.batchId } })).status).toBe('PUBLISHED');
@@ -189,14 +362,27 @@ databaseTests('Plaid sync with PostgreSQL', () => {
     expect(await prisma.transactionSource.findUniqueOrThrow({ where: { accountSourceId_externalTransactionId: {
       accountSourceId: source.id, externalTransactionId: pendingLegacy.externalTransactionId,
     } } })).toMatchObject({ transactionId: old.id, status: 'REMOVED' });
-    let followedUp = false;
-    for (let retry = 0; retry < 20 && !followedUp; retry++) {
-      followedUp = await processNextSyncJob();
-      if (!followedUp) await new Promise((resolve) => setTimeout(resolve, 20));
-    }
-    expect(followedUp).toBe(true);
+    expect(await processAvailableJob()).toBe(true);
     expect(fetch).toHaveBeenCalledWith(expect.objectContaining({ cursor: 'legacy-cursor' }));
     vi.restoreAllMocks();
+
+    expect((await getUndoableMigration(connectionId))?.batchId).toBe(review!.batchId);
+    const newSource = await prisma.transactionSource.findUniqueOrThrow({ where: { accountSourceId_externalTransactionId: {
+      accountSourceId: source.id, externalTransactionId: repeated.externalTransactionId,
+    } } });
+    await prisma.transaction.update({ where: { id: newSource.transactionId }, data: { categoryId, isReviewed: true } });
+    await expect(undoMigrationReview(connectionId, review!.batchId)).rejects.toThrow('categorized or reviewed');
+    expect((await prisma.accountSource.findUniqueOrThrow({ where: { id: source.id } })).status).toBe('ACTIVE');
+    await prisma.transaction.update({ where: { id: newSource.transactionId }, data: { categoryId: null, isReviewed: false } });
+    await prisma.transaction.update({ where: { id: old.id }, data: { isReviewed: false } });
+    expect(await undoMigrationReview(connectionId, review!.batchId)).toEqual({ accounts: 1 });
+    expect(await prisma.accountSource.findUniqueOrThrow({ where: { id: source.id } })).toMatchObject({ status: 'PAUSED' });
+    expect(await prisma.account.findUniqueOrThrow({ where: { id: legacy.id } })).toMatchObject({ ingestionState: 'ACTIVE', candidateSourceId: null });
+    expect(await prisma.transaction.findUniqueOrThrow({ where: { id: old.id } })).toMatchObject({
+      description: 'Existing merchant', status: 'POSTED', categoryId, isReviewed: false,
+    });
+    expect((await prisma.transaction.findUniqueOrThrow({ where: { id: newSource.transactionId } })).status).toBe('REMOVED');
+    expect(await getUndoableMigration(connectionId)).toBeNull();
   });
 
   it('validates account membership before atomically mapping an existing account', async () => {
@@ -275,6 +461,64 @@ databaseTests('Plaid sync with PostgreSQL', () => {
       await prisma.syncJob.deleteMany({ where: { connectionId, status: 'QUEUED' } });
       await prisma.reconciliationCase.delete({ where: { id: review.id } });
       await prisma.syncBatch.delete({ where: { id: batch.id } });
+      await prisma.account.update({ where: { id: mappingAccountId }, data: { ingestionState: 'ACTIVE', candidateSourceId: null } });
+      await prisma.accountSource.delete({ where: { id: source.id } });
+    }
+  });
+
+  it('excludes an unavailable account without blocking other account syncs', async () => {
+    await prisma.syncJob.deleteMany({ where: { status: 'QUEUED' } });
+    const itemId = `ignore-${suffix}`;
+    const secret = encryptSecret('fixture-token', key, 1, { provider: 'PLAID', environment: 'SANDBOX', externalItemId: itemId });
+    const conn = await prisma.bankConnection.create({ data: { provider: 'PLAID', environment: 'SANDBOX', externalItemId: itemId,
+      tokenCiphertext: secret.ciphertext, tokenNonce: secret.nonce, tokenAuthTag: secret.authTag, tokenKeyVersion: 1 } });
+    const externalAccountId = `ignored-${suffix}`;
+    vi.spyOn(PlaidProvider.prototype, 'listAccounts').mockResolvedValue([{ externalAccountId, name: 'Unavailable account',
+      officialName: null, mask: null, rawType: 'investment', rawSubtype: '401k', currency: 'CAD', currentBalance: null,
+      availableBalance: null, balanceObservedAt: new Date(), unavailable: true }]);
+    vi.spyOn(PlaidApi.prototype, 'transactionsSync').mockResolvedValue({ data: { added: [{ account_id: externalAccountId,
+      transaction_id: 'ignored-invalid', amount: null }], modified: [], removed: [], accounts: [], has_more: false,
+      next_cursor: 'ignored-cursor', transactions_update_status: 'HISTORICAL_UPDATE_COMPLETE' } } as never);
+    try {
+      await applyAccountMappings({ connectionId: conn.id, sessionId: 'fixture', mappings: [{ externalAccountId, action: 'IGNORE' }] });
+      expect((await inventorySuggestions(conn.id)).accounts[0]).toMatchObject({ ignored: true, currentBalance: null });
+      expect(await processAvailableJob(conn.id)).toBe(true);
+      expect((await prisma.bankConnection.findUniqueOrThrow({ where: { id: conn.id } })).transactionCursor).toBe('ignored-cursor');
+      expect(await prisma.quarantineItem.count({ where: { connectionId: conn.id } })).toBe(0);
+      await expect(applyAccountMappings({ connectionId: conn.id, sessionId: 'fixture', mappings: [
+        { externalAccountId, action: 'MAP', accountId },
+      ] })).rejects.toThrow('earlier history cannot be recovered');
+      expect(await prisma.ignoredBankAccount.count({ where: { connectionId: conn.id, externalAccountId } })).toBe(1);
+      expect(await prisma.accountSource.count({ where: { connectionId: conn.id } })).toBe(0);
+      expect((await prisma.bankConnection.findUniqueOrThrow({ where: { id: conn.id } })).transactionCursor).toBe('ignored-cursor');
+    } finally {
+      vi.restoreAllMocks();
+      await prisma.syncJob.deleteMany({ where: { jobType: 'CATEGORIZE', status: 'QUEUED' } });
+      await prisma.bankConnection.delete({ where: { id: conn.id } });
+    }
+  });
+
+  it('allows an excluded account to be mapped before any cursor has advanced', async () => {
+    const itemId = `exclude-before-sync-${suffix}`;
+    const secret = encryptSecret('fixture-token', key, 1, { provider: 'PLAID', environment: 'SANDBOX', externalItemId: itemId });
+    const connection = await prisma.bankConnection.create({ data: { provider: 'PLAID', environment: 'SANDBOX', externalItemId: itemId,
+      tokenCiphertext: secret.ciphertext, tokenNonce: secret.nonce, tokenAuthTag: secret.authTag, tokenKeyVersion: 1 } });
+    const account = await prisma.account.create({ data: { externalId: `exclude-before-sync-local-${suffix}`,
+      name: 'Existing account', currency: 'CAD', balance: 1, balanceDate: new Date() } });
+    const externalAccountId = `exclude-before-sync-account-${suffix}`;
+    vi.spyOn(PlaidProvider.prototype, 'listAccounts').mockResolvedValue([{ externalAccountId, name: 'Bank account',
+      officialName: null, mask: null, rawType: 'depository', rawSubtype: 'checking', currency: 'CAD', currentBalance: '1.00',
+      availableBalance: '1.00', balanceObservedAt: new Date(), unavailable: false }]);
+    try {
+      await applyAccountMappings({ connectionId: connection.id, sessionId: 'fixture', mappings: [{ externalAccountId, action: 'IGNORE' }] });
+      await applyAccountMappings({ connectionId: connection.id, sessionId: 'fixture', mappings: [{ externalAccountId, action: 'MAP', accountId: account.id }] });
+      expect(await prisma.ignoredBankAccount.count({ where: { connectionId: connection.id } })).toBe(0);
+      expect(await prisma.accountSource.count({ where: { connectionId: connection.id, accountId: account.id } })).toBe(1);
+      expect(await prisma.syncJob.count({ where: { connectionId: connection.id, jobType: 'CONNECTION_SYNC', status: 'QUEUED' } })).toBe(1);
+    } finally {
+      vi.restoreAllMocks();
+      await prisma.bankConnection.delete({ where: { id: connection.id } });
+      await prisma.account.delete({ where: { id: account.id } });
     }
   });
 
@@ -312,5 +556,124 @@ databaseTests('Plaid sync with PostgreSQL', () => {
       expect(remaining.tokenCiphertext).toBe(secret.ciphertext);
       expect(remaining.pausedAt).not.toBeNull();
     } finally { vi.restoreAllMocks(); await prisma.bankConnection.delete({ where: { id: conn.id } }); }
+  });
+
+  it('quarantines an invalid provider record and replays an explicitly repaired value without advancing early', async () => {
+    await prisma.syncJob.deleteMany({ where: { status: 'QUEUED' } });
+    const id = `quarantine-${suffix}`;
+    const original = { transaction_id: id, account_id: `acct-${suffix}`, amount: null, date: '2026-10-29',
+      name: 'Invalid purchase', pending: false, iso_currency_code: 'CAD' };
+    vi.spyOn(PlaidApi.prototype, 'transactionsSync').mockResolvedValue({ data: { added: [original], modified: [], removed: [],
+      accounts: [], has_more: false, next_cursor: 'quarantine-cursor', transactions_update_status: 'HISTORICAL_UPDATE_COMPLETE' } } as never);
+    vi.spyOn(PlaidProvider.prototype, 'listAccounts').mockResolvedValue([]);
+    const before = await prisma.bankConnection.findUniqueOrThrow({ where: { id: connectionId } });
+    const job = await enqueueBankSync(prisma, { jobType: 'CONNECTION_SYNC', trigger: 'MANUAL', connectionId });
+    expect(await processAvailableJob()).toBe(true);
+    expect((await prisma.syncJob.findUniqueOrThrow({ where: { id: job.jobId } })).status).toBe('FAILED');
+    expect((await prisma.bankConnection.findUniqueOrThrow({ where: { id: connectionId } })).transactionCursor).toBe(before.transactionCursor);
+    const item = await prisma.quarantineItem.findFirstOrThrow({ where: { connectionId, externalTransactionId: id, status: 'OPEN' } });
+    const app = express(); app.use(express.json()); app.use('/api/bank-connections', bankRoutes); app.use(errorHandler);
+    const replay = await request(app).post(`/api/bank-connections/${connectionId}/quarantine/${item.id}/replay`).send({ patch: { amount: 12.34 } }).expect(202);
+    expect(await processAvailableJob()).toBe(true);
+    expect(await prisma.syncJob.findUniqueOrThrow({ where: { id: replay.body.data.jobId }, select: { status: true, errorMessage: true } })).toEqual({ status: 'SUCCEEDED', errorMessage: null });
+    expect((await prisma.bankConnection.findUniqueOrThrow({ where: { id: connectionId } })).transactionCursor).toBe('quarantine-cursor');
+    expect((await prisma.quarantineItem.findUniqueOrThrow({ where: { id: item.id } })).status).toBe('RESOLVED');
+    const source = await prisma.transactionSource.findFirstOrThrow({ where: { externalTransactionId: id }, include: { transaction: true } });
+    expect(source.transaction.amount.toString()).toBe('-12.34');
+    await prisma.syncJob.deleteMany({ where: { jobType: 'CATEGORIZE', status: 'QUEUED' } });
+    vi.restoreAllMocks();
+  });
+
+  it('does not apply an old repair over a newer provider version', async () => {
+    await prisma.syncJob.deleteMany({ where: { status: 'QUEUED' } });
+    const id = `quarantine-newer-${suffix}`;
+    const original = { transaction_id: id, account_id: `acct-${suffix}`, amount: null, date: '2026-10-29',
+      name: 'Changed purchase', pending: false, iso_currency_code: 'CAD' };
+    const response = (amount: number | null, cursor: string) => ({ data: { added: [{ ...original, amount }], modified: [], removed: [],
+      accounts: [], has_more: false, next_cursor: cursor, transactions_update_status: 'HISTORICAL_UPDATE_COMPLETE' } });
+    const fetch = vi.spyOn(PlaidApi.prototype, 'transactionsSync').mockResolvedValue(response(null, 'unused') as never);
+    vi.spyOn(PlaidProvider.prototype, 'listAccounts').mockResolvedValue([]);
+    await enqueueBankSync(prisma, { jobType: 'CONNECTION_SYNC', trigger: 'MANUAL', connectionId });
+    expect(await processAvailableJob()).toBe(true);
+    const item = await prisma.quarantineItem.findFirstOrThrow({ where: { connectionId, externalTransactionId: id, status: 'OPEN' } });
+    const app = express(); app.use(express.json()); app.use('/api/bank-connections', bankRoutes); app.use(errorHandler);
+    await request(app).post(`/api/bank-connections/${connectionId}/quarantine/${item.id}/replay`).send({ patch: { amount: 99 } }).expect(202);
+    fetch.mockResolvedValue(response(55, 'newer-cursor') as never);
+    expect(await processAvailableJob()).toBe(true);
+    const source = await prisma.transactionSource.findFirstOrThrow({ where: { externalTransactionId: id }, include: { transaction: true } });
+    expect(source.transaction.amount.toString()).toBe('-55');
+    expect((await prisma.quarantineItem.findUniqueOrThrow({ where: { id: item.id } })).status).toBe('RESOLVED');
+    await prisma.syncJob.deleteMany({ where: { jobType: 'CATEGORIZE', status: 'QUEUED' } });
+    vi.restoreAllMocks();
+  });
+
+  it('does not resurrect a quarantined transaction removed before replay', async () => {
+    await prisma.syncJob.deleteMany({ where: { status: 'QUEUED' } });
+    const id = `quarantine-removed-${suffix}`;
+    const original = { transaction_id: id, account_id: `acct-${suffix}`, amount: null, date: '2026-10-29',
+      name: 'Removed purchase', pending: false, iso_currency_code: 'CAD' };
+    const fetch = vi.spyOn(PlaidApi.prototype, 'transactionsSync').mockResolvedValue({ data: { added: [original], modified: [], removed: [],
+      accounts: [], has_more: false, next_cursor: 'unused', transactions_update_status: 'HISTORICAL_UPDATE_COMPLETE' } } as never);
+    vi.spyOn(PlaidProvider.prototype, 'listAccounts').mockResolvedValue([]);
+    await enqueueBankSync(prisma, { jobType: 'CONNECTION_SYNC', trigger: 'MANUAL', connectionId });
+    expect(await processAvailableJob()).toBe(true);
+    const item = await prisma.quarantineItem.findFirstOrThrow({ where: { connectionId, externalTransactionId: id, status: 'OPEN' } });
+    const app = express(); app.use(express.json()); app.use('/api/bank-connections', bankRoutes); app.use(errorHandler);
+    await request(app).post(`/api/bank-connections/${connectionId}/quarantine/${item.id}/replay`).send({ patch: { amount: 99 } }).expect(202);
+    fetch.mockResolvedValue({ data: { added: [], modified: [], removed: [{ transaction_id: id, account_id: `acct-${suffix}` }],
+      accounts: [], has_more: false, next_cursor: 'removed-cursor', transactions_update_status: 'HISTORICAL_UPDATE_COMPLETE' } } as never);
+    expect(await processAvailableJob()).toBe(true);
+    expect(await prisma.transactionSource.findFirst({ where: { externalTransactionId: id } })).toBeNull();
+    expect((await prisma.quarantineItem.findUniqueOrThrow({ where: { id: item.id } })).status).toBe('RESOLVED');
+    await prisma.syncJob.deleteMany({ where: { jobType: 'CATEGORIZE', status: 'QUEUED' } });
+    vi.restoreAllMocks();
+  });
+
+  it('marks reports stale after committed changes, including changes during report generation', async () => {
+    const revision = (await prisma.reportRevision.findUniqueOrThrow({ where: { id: 'ledger' } })).revision;
+    const report = await prisma.report.create({ data: { title: 'Fixture', type: 'MONTHLY_SUMMARY',
+      content: {}, period: `fixture-${suffix}`, dataRevision: revision } });
+    let concurrentId: string | undefined;
+    try {
+      expect((await getReportById(report.id))?.isStale).toBe(false);
+      await expect(prisma.$transaction(async (tx) => {
+        await tx.account.update({ where: { id: accountId }, data: { balance: 123 } });
+        throw new Error('rollback fixture');
+      })).rejects.toThrow('rollback fixture');
+      expect((await getReportById(report.id))?.isStale).toBe(false);
+      await prisma.account.update({ where: { id: accountId }, data: { balance: 124 } });
+      expect((await getReportById(report.id))?.isStale).toBe(true);
+      const concurrent = await prisma.report.create({ data: { title: 'Concurrent fixture', type: 'MONTHLY_SUMMARY',
+        content: {}, period: `concurrent-${suffix}`, dataRevision: revision } });
+      concurrentId = concurrent.id;
+      expect((await getReportById(concurrent.id))?.isStale).toBe(true);
+      expect((await getReports(1, 100)).data.find((item) => item.id === report.id)?.isStale).toBe(true);
+    } finally { await prisma.report.deleteMany({ where: { id: { in: [report.id, ...(concurrentId ? [concurrentId] : [])] } } }); }
+  });
+
+  it('rotates connection and recovery tokens atomically and rolls back on corrupt data', async () => {
+    const nextKey = randomBytes(32);
+    const attempt = await prisma.linkAttempt.create({ data: { sessionId: 'rotation-fixture', provider: 'PLAID', environment: 'SANDBOX',
+      expiresAt: new Date(Date.now() + 60000) } });
+    const linkToken = encryptRecoverySecret('fixture-link', key, 1, `link-token:${attempt.id}`);
+    const recoveryToken = encryptRecoverySecret('fixture-recovery', key, 1, `access-token:${attempt.id}`);
+    await prisma.linkAttempt.update({ where: { id: attempt.id }, data: { linkToken: JSON.stringify(linkToken),
+      recoveryPublicTokenCiphertext: '{broken' } });
+    const original = await prisma.bankConnection.findUniqueOrThrow({ where: { id: connectionId } });
+    try {
+      await expect(rotateBankTokenKeys(prisma, key, 1, nextKey, 2)).rejects.toThrow('malformed');
+      expect(await prisma.bankConnection.findUniqueOrThrow({ where: { id: connectionId } })).toMatchObject({
+        tokenCiphertext: original.tokenCiphertext, tokenKeyVersion: 1, version: original.version });
+      await prisma.linkAttempt.update({ where: { id: attempt.id }, data: { recoveryPublicTokenCiphertext: JSON.stringify(recoveryToken) } });
+      await rotateBankTokenKeys(prisma, key, 1, nextKey, 2);
+      const rotated = await prisma.bankConnection.findUniqueOrThrow({ where: { id: connectionId } });
+      expect(rotated.tokenKeyVersion).toBe(2);
+      expect(rotated.version).toBe(original.version + 1);
+      expect(decryptSecret({ ciphertext: rotated.tokenCiphertext!, nonce: rotated.tokenNonce!, authTag: rotated.tokenAuthTag!, keyVersion: 2 },
+        nextKey, { provider: 'PLAID', environment: 'SANDBOX', externalItemId: suffix })).toBe('fixture-access-token');
+      const saved = await prisma.linkAttempt.findUniqueOrThrow({ where: { id: attempt.id } });
+      expect(decryptRecoverySecret(JSON.parse(saved.linkToken!), nextKey, `link-token:${attempt.id}`)).toBe('fixture-link');
+      expect(decryptRecoverySecret(JSON.parse(saved.recoveryPublicTokenCiphertext!), nextKey, `access-token:${attempt.id}`)).toBe('fixture-recovery');
+    } finally { await prisma.linkAttempt.delete({ where: { id: attempt.id } }); }
   });
 });

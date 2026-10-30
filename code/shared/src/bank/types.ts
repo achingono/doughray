@@ -48,6 +48,20 @@ export interface NormalizedTransactionChange {
   sourceRevision: string | null;
   /** Restricted provider facts retained for reconciliation; never logged raw. */
   observedFacts: ProviderTransactionFacts;
+  /** Restricted, allowlisted provider evidence used only for quarantine replay. */
+  sourceEvidence?: PlaidRecordEvidence;
+}
+
+export interface PlaidRecordEvidence {
+  fingerprint: string;
+  changeType: 'ADDED' | 'MODIFIED';
+  record: Record<string, unknown>;
+}
+
+export interface PlaidRecordRepair {
+  fingerprint: string;
+  ruleVersion: number;
+  patch: { amount?: number; date?: string; name?: string; iso_currency_code?: string };
 }
 
 export interface ProviderTransactionFacts {

@@ -31,6 +31,17 @@ describe('Plaid financial data contract', () => {
       .toThrow('transaction is missing a valid amount');
   });
 
+  it('keeps usable account inventory when a balance exceeds ledger precision', async () => {
+    vi.spyOn(PlaidApi.prototype, 'accountsGet').mockResolvedValue({ data: { accounts: [
+      { account_id: 'a', name: 'Checking', type: 'depository', subtype: 'checking', balances: { current: 25, available: 15.123, iso_currency_code: 'CAD' } },
+      { account_id: 'b', name: 'Investment', type: 'investment', subtype: '401k', balances: { current: 123.4567, available: null, iso_currency_code: 'CAD' } },
+    ] } } as never);
+    const accounts = await provider().listAccounts('fixture');
+    expect(accounts.map((account) => [account.currentBalance, account.availableBalance, account.unavailable])).toEqual([
+      ['25.00', null, false], [null, null, true],
+    ]);
+  });
+
   it('classifies actual Plaid pagination errors and retains request IDs', async () => {
     vi.spyOn(PlaidApi.prototype, 'transactionsSync').mockRejectedValue({ response: { status: 400, data: {
       error_type: 'TRANSACTIONS_ERROR', error_code: 'TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION', request_id: 'req-1',
@@ -46,6 +57,15 @@ describe('Plaid financial data contract', () => {
       transactions_update_status: 'NOT_READY',
     } } as never);
     await expect(provider().syncPage({ accessToken: 'fixture', cursor: null })).resolves.toMatchObject({ transactionsUpdateStatus: 'NOT_READY' });
+  });
+
+  it('skips paused accounts before normalizing their records', async () => {
+    vi.spyOn(PlaidApi.prototype, 'transactionsSync').mockResolvedValue({ data: {
+      added: [{ account_id: 'paused', transaction_id: 'bad', amount: null }], modified: [], removed: [],
+      accounts: [], has_more: false, next_cursor: 'after',
+    } } as never);
+    await expect(provider().syncPage({ accessToken: 'fixture', cursor: null, excludedAccountIds: ['paused'] }))
+      .resolves.toMatchObject({ changes: [], nextCursor: 'after' });
   });
 
   it('redacts common identifiers from model-bound descriptions', () => {

@@ -2,19 +2,23 @@ import { randomUUID } from 'node:crypto';
 import { Prisma, type SyncJob } from '@prisma/client';
 import {
   BankProviderErrorKind, NormalizationError, PlaidProvider, dateOnlyToUtcStorage,
-  decryptSecret, loadBankConfig, validateCurrency, type NormalizedTransactionChange,
+  decryptSecret, loadBankConfig, validateCurrency, QuarantinedProviderRecord, NORMALIZATION_VERSION,
+  accountFacts, transactionFacts, transactionAnnotations, sourceFacts,
+  enqueueBankSync,
+  type NormalizedTransactionChange, type PlaidRecordRepair,
 } from '@doughray/shared';
 import prisma from '../lib/prisma';
 
 /** Fetch all pages before publishing. A mutation restarts at the original cursor. */
-export async function fetchCompleteUpdate(provider: Pick<PlaidProvider, 'syncPage'>, accessToken: string, startCursor: string | null) {
+export async function fetchCompleteUpdate(provider: Pick<PlaidProvider, 'syncPage'>, accessToken: string, startCursor: string | null, repairs: PlaidRecordRepair[] = [], excludedAccountIds: string[] = []) {
   for (let attempt = 0; attempt < 3; attempt++) {
     let cursor = startCursor;
     let historyStatus: string | null = null;
     const changes: NormalizedTransactionChange[] = [];
     try {
       for (let pageNumber = 0; pageNumber < 1000; pageNumber++) {
-        const page = await provider.syncPage({ accessToken, cursor });
+        const page = await provider.syncPage({ accessToken, cursor, ...(repairs.length ? { repairs } : {}),
+          ...(excludedAccountIds.length ? { excludedAccountIds } : {}) });
         changes.push(...page.changes);
         historyStatus = page.transactionsUpdateStatus;
         cursor = page.nextCursor;
@@ -33,7 +37,7 @@ export async function fetchCompleteUpdate(provider: Pick<PlaidProvider, 'syncPag
 export async function syncConnection(job: SyncJob): Promise<void> {
   if (!job.connectionId) throw new Error('Connection sync job has no connection.');
   const connection = await prisma.bankConnection.findUnique({ where: { id: job.connectionId } });
-  if (!connection || connection.provider !== 'PLAID' || connection.status === 'DISCONNECTED' || connection.pausedAt) {
+  if (!connection || connection.provider !== 'PLAID' || ['DISCONNECTED', 'AUTH_REQUIRED', 'CONSENT_REVOKED'].includes(connection.status) || connection.pausedAt) {
     throw new Error('Connection is unavailable or paused.');
   }
   const config = loadBankConfig();
@@ -59,11 +63,23 @@ export async function syncConnection(job: SyncJob): Promise<void> {
     authTag: connection.tokenAuthTag, keyVersion: connection.tokenKeyVersion }, config.encryption.keyMaterial,
     { provider: 'PLAID', environment: connection.environment, externalItemId: connection.externalItemId });
   const provider = new PlaidProvider({ settings: config.plaid });
-  const update = await fetchCompleteUpdate(provider, accessToken, connection.transactionCursor);
-  const inventory = await provider.listAccounts(accessToken);
+  const [pausedSources, ignoredAccounts] = await Promise.all([
+    prisma.accountSource.findMany({ where: { connectionId: connection.id, status: 'PAUSED' }, select: { externalAccountId: true } }),
+    prisma.ignoredBankAccount.findMany({ where: { connectionId: connection.id }, select: { externalAccountId: true } }),
+  ]);
+  const excludedAccountIds = [...new Set([...pausedSources, ...ignoredAccounts].map((source) => source.externalAccountId))];
+  const quarantine = await prisma.quarantineItem.findMany({ where: { connectionId: connection.id, status: 'REPLAYING' } });
+  const repairs: PlaidRecordRepair[] = quarantine.map((item) => item.sourcePayload as unknown as {
+    cursorStart: string | null; fingerprint: string; ruleVersion: number; patch?: PlaidRecordRepair['patch'];
+  }).filter((item) => item.cursorStart === connection.transactionCursor && item.ruleVersion === NORMALIZATION_VERSION && item.patch !== undefined)
+    .map((item) => ({ fingerprint: item.fingerprint, ruleVersion: item.ruleVersion, patch: item.patch! }));
+  let update: Awaited<ReturnType<typeof fetchCompleteUpdate>>;
+  try { update = await fetchCompleteUpdate(provider, accessToken, connection.transactionCursor, repairs, excludedAccountIds); }
+  catch (error) { annotateQuarantine(error, connection.transactionCursor, connection.version); throw error; }
+  const inventory = await provider.listAccounts(accessToken, excludedAccountIds);
 
   // Network calls are complete before entering the database transaction.
-  await prisma.$transaction(async (tx) => {
+  try { await prisma.$transaction(async (tx) => {
     const now = new Date();
     const fencedJob = await tx.syncJob.updateMany({ where: {
       id: job.id, status: 'RUNNING', leaseOwner: job.leaseOwner, version: job.version,
@@ -80,7 +96,7 @@ export async function syncConnection(job: SyncJob): Promise<void> {
     const migrating = sources.filter((source) => source.account.ingestionState === 'MIGRATING' && source.account.candidateSourceId === source.id);
     if (migrating.length) {
       const guarded = await tx.bankConnection.updateMany({ where: {
-        id: connection.id, version: connection.version, pausedAt: null, status: { not: 'DISCONNECTED' },
+        id: connection.id, version: connection.version, pausedAt: null, status: { notIn: ['DISCONNECTED', 'AUTH_REQUIRED', 'CONSENT_REVOKED'] },
       }, data: {
         transactionsInitialState: update.historyStatus === 'NOT_READY' ? 'NOT_READY' : 'COMPLETE',
         transactionsHistoryState: update.historyStatus === 'HISTORICAL_UPDATE_COMPLETE' ? 'COMPLETE' : 'PROCESSING',
@@ -105,9 +121,11 @@ export async function syncConnection(job: SyncJob): Promise<void> {
           coverageJson: { historyStatus: update.historyStatus } } });
         for (const change of latest.values()) {
           if (change.externalAccountId !== source.externalAccountId || change.changeType === 'REMOVED' || change.providerStatus !== 'POSTED') continue;
-          if (validateCurrency(change.currency) !== source.account.currency.toUpperCase()) throw new NormalizationError('CURRENCY_INVALID', 'Transaction currency differs from its account.');
+          validateAccountCurrency(change, source.account.currency);
           const posted = dateOnlyToUtcStorage(change.postedDate);
           const candidates = await tx.transaction.findMany({ where: { accountId: source.accountId, status: 'POSTED',
+            amount: change.amount,
+            OR: [{ isoCurrencyCode: null }, { isoCurrencyCode: source.account.currency.toUpperCase() }],
             posted: { gte: new Date(posted.getTime() - 3 * 86400000), lte: new Date(posted.getTime() + 3 * 86400000) } },
             select: { id: true, posted: true, amount: true, description: true, payee: true }, orderBy: { posted: 'desc' }, take: 100 });
           await tx.reconciliationCandidate.create({ data: { caseId: caseRow.id, accountId: source.accountId, accountSourceId: source.id,
@@ -118,7 +136,7 @@ export async function syncConnection(job: SyncJob): Promise<void> {
       return;
     }
     const fencedConnection = await tx.bankConnection.updateMany({ where: {
-      id: connection.id, version: connection.version, pausedAt: null, status: { not: 'DISCONNECTED' },
+      id: connection.id, version: connection.version, pausedAt: null, status: { notIn: ['DISCONNECTED', 'AUTH_REQUIRED', 'CONSENT_REVOKED'] },
     }, data: { status: 'HEALTHY', healthDetail: null, lastErrorCode: null, lastErrorMessage: null,
       lastSuccessfulSyncAt: now, transactionCursor: update.cursor, transactionCursorUpdatedAt: now,
       transactionsInitialState: update.historyStatus === 'NOT_READY' ? 'NOT_READY'
@@ -152,13 +170,37 @@ export async function syncConnection(job: SyncJob): Promise<void> {
       removedCount: update.changes.filter((c) => c.changeType === 'REMOVED').length,
     } });
     await applyChanges(tx, connection.id, batch.id, update.changes);
+    await resolveReplays(tx, connection.id, connection.transactionCursor, now);
+    await enqueueBankSync(prisma, { jobType: 'CATEGORIZE', trigger: 'SCHEDULED' }, tx);
     await tx.syncJob.update({ where: { id: job.id }, data: {
       fetchedCount: update.changes.length,
       addedCount: update.changes.filter((c) => c.changeType === 'ADDED').length,
       modifiedCount: update.changes.filter((c) => c.changeType === 'MODIFIED').length,
       removedCount: update.changes.filter((c) => c.changeType === 'REMOVED').length,
     } });
-  }, { timeout: 120000 });
+  }, { timeout: 120000 }); }
+  catch (error) { annotateQuarantine(error, connection.transactionCursor, connection.version); throw error; }
+}
+
+function annotateQuarantine(error: unknown, cursor: string | null, version: number): void {
+  if (error instanceof QuarantinedProviderRecord) { error.cursorStart = cursor; error.connectionVersion = version; }
+}
+
+function validateAccountCurrency(change: NormalizedTransactionChange, expected: string): void {
+  try {
+    if (validateCurrency(change.currency) !== expected.toUpperCase()) throw new NormalizationError('CURRENCY_INVALID', 'Transaction currency differs from its account.');
+  } catch (error) {
+    if (error instanceof NormalizationError && change.sourceEvidence) throw new QuarantinedProviderRecord(error, change.sourceEvidence);
+    throw error;
+  }
+}
+
+async function resolveReplays(tx: Prisma.TransactionClient, connectionId: string, cursor: string | null, now: Date): Promise<void> {
+  const open = await tx.quarantineItem.findMany({ where: { connectionId, status: 'REPLAYING' } });
+  const ids = open.filter((item) => (item.sourcePayload as { cursorStart?: string | null }).cursorStart === cursor).map((item) => item.id);
+  if (ids.length) await tx.quarantineItem.updateMany({ where: { id: { in: ids }, status: 'REPLAYING' }, data: {
+    status: 'RESOLVED', resolvedAt: now, resolutionNote: 'The update was published or the provider supplied a newer version.',
+  } });
 }
 
 async function publishApprovedBatch(job: SyncJob, connection: { id: string; version: number; transactionCursor: string | null }, batchId: string): Promise<void> {
@@ -169,17 +211,31 @@ async function publishApprovedBatch(job: SyncJob, connection: { id: string; vers
     if (fencedJob.count !== 1) throw new Error('Sync lease expired before publication.');
     const batch = await tx.syncBatch.findFirst({ where: { id: batchId, connectionId: connection.id, status: 'STAGED' }, include: { items: { orderBy: { createdAt: 'asc' } } } });
     if (!batch || batch.cursorStart !== (connection.transactionCursor ?? '')) throw new Error('Approved review changed before publication.');
-    const cases = await tx.reconciliationCase.findMany({ where: { connectionId: connection.id }, select: { status: true, manifest: true } });
+    const cases = await tx.reconciliationCase.findMany({ where: { connectionId: connection.id }, select: { id: true, status: true, manifest: true } });
     const related = cases.filter((item) => (item.manifest as { batchId?: string } | null)?.batchId === batch.id);
     if (!related.length || related.some((item) => item.status !== 'COMMITTED')) throw new Error('Review is not approved.');
     const fencedConnection = await tx.bankConnection.updateMany({ where: { id: connection.id, version: connection.version,
-      pausedAt: null, status: { not: 'DISCONNECTED' } }, data: { status: 'HEALTHY', healthDetail: null,
+      pausedAt: null, status: { notIn: ['DISCONNECTED', 'AUTH_REQUIRED', 'CONSENT_REVOKED'] } }, data: { status: 'HEALTHY', healthDetail: null,
       transactionCursor: batch.cursorEnd, transactionCursorUpdatedAt: now, lastSuccessfulSyncAt: now,
       transactionsInitialState: 'COMPLETE', transactionsHistoryState: 'COMPLETE' } });
     if (fencedConnection.count !== 1) throw new Error('Connection changed before publication.');
     const changes = batch.items.map((item) => item.observedFacts as unknown as NormalizedTransactionChange);
     await applyChanges(tx, connection.id, batch.id, changes);
+    for (const item of related) {
+      // Older approvals lack the baseline needed for safe undo.
+      const caseRow = await tx.reconciliationCase.findUniqueOrThrow({ where: { id: item.id } });
+      if (!caseRow.accountSourceId) throw new Error('Review account is missing.');
+      const source = await tx.accountSource.findUniqueOrThrow({ where: { id: caseRow.accountSourceId }, include: { account: true } });
+      const sourceRows = await tx.transactionSource.findMany({ where: { accountSourceId: source.id }, orderBy: { id: 'asc' } });
+      const transactions = await tx.transaction.findMany({ where: { id: { in: [...new Set(sourceRows.map((row) => row.transactionId))] } }, orderBy: { id: 'asc' } });
+      await tx.reconciliationAudit.create({ data: { caseId: caseRow.id, action: 'FACTS_UPDATED', afterJson: {
+        batchId: batch.id, account: accountFacts(source.account), sources: sourceRows.map(sourceFacts),
+        transactions: transactions.map((row) => ({ facts: transactionFacts(row), annotations: transactionAnnotations(row) })),
+      } as unknown as Prisma.InputJsonObject } });
+    }
+    await resolveReplays(tx, connection.id, connection.transactionCursor, now);
     await tx.syncBatch.update({ where: { id: batch.id }, data: { status: 'PUBLISHED', publishedAt: now } });
+    await enqueueBankSync(prisma, { jobType: 'CATEGORIZE', trigger: 'SCHEDULED' }, tx);
     await tx.syncJob.update({ where: { id: job.id }, data: { rerunRequested: true, fetchedCount: changes.length,
       addedCount: changes.filter((change) => change.changeType === 'ADDED').length,
       modifiedCount: changes.filter((change) => change.changeType === 'MODIFIED').length,
@@ -197,7 +253,7 @@ async function applyChanges(tx: Prisma.TransactionClient, connectionId: string, 
       accountSource: { connectionId, externalAccountId: change.externalAccountId } }, include: { accountSource: { include: { account: true } } } }) : null;
     if (!successorSource) { await applyChange(tx, connectionId, batchId, change); continue; }
     const source = successorSource.accountSource;
-    if (validateCurrency(change.currency) !== source.account.currency.toUpperCase()) throw new NormalizationError('CURRENCY_INVALID', 'Transaction currency differs from its account.');
+    validateAccountCurrency(change, source.account.currency);
     const locked = await tx.account.updateMany({ where: { id: source.accountId, ingestionState: 'ACTIVE', candidateSourceId: null }, data: { updatedAt: new Date() } });
     if (locked.count !== 1) throw new Error('Account changed before publication.');
     const previous = await tx.transactionSource.findUnique({ where: { accountSourceId_externalTransactionId: {
@@ -215,7 +271,7 @@ export async function refreshConnection(job: SyncJob): Promise<void> {
   const connection = await prisma.bankConnection.findUnique({ where: { id: job.connectionId } });
   const config = loadBankConfig();
   const expectedEnvironment = config.plaid.env === 'production' ? 'PRODUCTION' : config.plaid.env === 'sandbox' ? 'SANDBOX' : null;
-  if (!config.plaid.refreshEnabled || !connection || connection.status === 'DISCONNECTED' || connection.pausedAt ||
+  if (!config.plaid.refreshEnabled || !connection || ['DISCONNECTED', 'AUTH_REQUIRED', 'CONSENT_REVOKED'].includes(connection.status) || connection.pausedAt ||
       connection.environment !== expectedEnvironment || !config.encryption.keyMaterial || connection.tokenKeyVersion !== config.encryption.keyVersion ||
       !connection.tokenCiphertext || !connection.tokenNonce || !connection.tokenAuthTag) {
     throw new Error('Connection is unavailable or bank refresh is disabled.');
@@ -238,7 +294,12 @@ async function applyChange(tx: Prisma.TransactionClient, connectionId: string, b
       data: { updatedAt: new Date() } });
     if (locked.count !== 1) throw new Error('Account migration requires reconciliation before import.');
     await tx.transactionSource.update({ where: { id: existing.id }, data: { status: 'REMOVED', sourceBatchId: batchId } });
-    const otherActive = await tx.transactionSource.count({ where: { transactionId: existing.transactionId, status: 'ACTIVE' } });
+    // Historical aliases from another provider do not override a removal by
+    // the account's current authoritative source. A pending/posted alias on
+    // this same source may still keep the canonical transaction active.
+    const otherActive = await tx.transactionSource.count({ where: {
+      transactionId: existing.transactionId, accountSourceId: existing.accountSourceId, status: 'ACTIVE',
+    } });
     if (otherActive === 0) await tx.transaction.update({ where: { id: existing.transactionId }, data: { status: 'REMOVED' } });
     return;
   }
@@ -254,8 +315,8 @@ async function applyChange(tx: Prisma.TransactionClient, connectionId: string, b
     id: source.accountId, ingestionState: 'ACTIVE', candidateSourceId: null,
   }, data: { updatedAt: new Date() } });
   if (protectedAccount.count !== 1) throw new Error('Account changed before publication.');
+  validateAccountCurrency(change, source.account.currency);
   const currency = validateCurrency(change.currency);
-  if (currency !== source.account.currency.toUpperCase()) throw new NormalizationError('CURRENCY_INVALID', 'Transaction currency differs from its account.');
   const predecessor = change.pendingExternalId ? await tx.transactionSource.findUnique({ where: {
     accountSourceId_externalTransactionId: { accountSourceId: source.id, externalTransactionId: change.pendingExternalId },
   } }) : null;

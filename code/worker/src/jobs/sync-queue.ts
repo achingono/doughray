@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { type SyncJob } from '@prisma/client';
-import { BankProviderErrorKind, NormalizationError, enqueueBankSync, lockSyncQueue } from '@doughray/shared';
+import { Prisma, type SyncJob } from '@prisma/client';
+import { BankProviderErrorKind, NormalizationError, QuarantinedProviderRecord, enqueueBankSync, lockSyncQueue } from '@doughray/shared';
 import prisma from '../lib/prisma';
 import { importTransactions } from './import-transactions';
 import { backfillTransactions } from './backfill-transactions';
@@ -59,16 +59,35 @@ export async function processNextSyncJob(): Promise<boolean> {
         : providerError.providerCode ? `Provider error: ${providerError.providerCode}`
           : failure instanceof Error && /^(Map all bank accounts|Account migration|Connection is unavailable|Connection environment)/.test(failure.message)
             ? failure.message : 'Sync failed; check connection and retry.';
+      if (failure instanceof QuarantinedProviderRecord && job.connectionId) {
+        const connection = await tx.bankConnection.findUnique({ where: { id: job.connectionId } });
+        if (connection && connection.version === failure.connectionVersion && connection.transactionCursor === failure.cursorStart) {
+          const items = await tx.quarantineItem.findMany({ where: { connectionId: job.connectionId, status: { in: ['OPEN', 'REPLAYING'] } } });
+          const prior = items.find((item) => {
+            const payload = item.sourcePayload as { fingerprint?: string; cursorStart?: string | null };
+            return payload.fingerprint === failure.evidence.fingerprint && payload.cursorStart === failure.cursorStart;
+          });
+          if (prior) await tx.quarantineItem.update({ where: { id: prior.id }, data: { status: 'OPEN', reason: failure.reason } });
+          else await tx.quarantineItem.create({ data: { connectionId: job.connectionId,
+            externalTransactionId: typeof failure.evidence.record.transaction_id === 'string' ? failure.evidence.record.transaction_id : null,
+            reason: failure.reason, sourcePayload: { ...failure.evidence, cursorStart: failure.cursorStart,
+              connectionVersion: failure.connectionVersion, ruleVersion: failure.ruleVersion } as Prisma.InputJsonObject } });
+        }
+      }
       await tx.syncJob.update({ where: { id: job.id }, data: {
         status: retry ? 'QUEUED' : 'FAILED', nextRunAt: new Date(Date.now() + Math.min(300000, 5000 * 2 ** current.attempts)),
         errorMessage: safeMessage, requestId: providerError.requestId ?? null,
         completedAt: retry ? null : new Date(), leaseOwner: null, leaseExpiresAt: null,
+        quarantinedCount: failure instanceof QuarantinedProviderRecord ? 1 : 0,
       } });
       if (job.connectionId) {
         const health = providerError.kind === BankProviderErrorKind.AUTH_REQUIRED || providerError.kind === BankProviderErrorKind.CONSENT_REVOKED
           ? 'AUTH_REQUIRED' as const : undefined;
-        await tx.bankConnection.updateMany({ where: { id: job.connectionId, status: { not: 'DISCONNECTED' } }, data: {
-          status: health, healthDetail: safeMessage, lastErrorAt: new Date(),
+        // A stale worker must not overwrite a revocation or disconnect reported
+        // while its provider request was in flight.
+        await tx.bankConnection.updateMany({ where: { id: job.connectionId,
+          status: { notIn: ['DISCONNECTED', 'AUTH_REQUIRED', 'CONSENT_REVOKED'] } }, data: {
+          status: health, version: health ? { increment: 1 } : undefined, healthDetail: safeMessage, lastErrorAt: new Date(),
           lastErrorCode: providerError.providerCode ?? null, lastErrorMessage: safeMessage,
         } });
       }
@@ -85,7 +104,7 @@ export async function processNextSyncJob(): Promise<boolean> {
       } });
     }
   });
-  if (!failure && (job.jobType === 'SIMPLEFIN_IMPORT' || job.jobType === 'CONNECTION_SYNC')) {
+  if (!failure && job.jobType === 'SIMPLEFIN_IMPORT') {
     await enqueueBankSync(prisma, { jobType: 'CATEGORIZE', trigger: 'SCHEDULED' });
   }
   if (!failure && job.jobType === 'BANK_REFRESH' && job.connectionId) {

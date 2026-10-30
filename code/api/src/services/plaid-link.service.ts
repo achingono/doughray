@@ -5,6 +5,7 @@ import {
   encryptRecoverySecret,
   encryptSecret,
   mapProviderAccountType,
+  lockSyncQueue,
   normalizeText,
   validateCurrency,
   type BankProviderError,
@@ -278,6 +279,7 @@ export interface ProviderAccountSuggestion {
   currency: string | null;
   currentBalance: string | null;
   availableBalance: string | null;
+  ignored: boolean;
   mappedAccountSourceId: string | null;
   suggestedAccountId: string | null;
   suggestionReason: string | null;
@@ -300,6 +302,7 @@ interface SuggestionContext {
   institutionName: string | null;
   localAccounts: Array<{ id: string; name: string; institution: string | null; currency: string; type: string }>;
   existingSources: Array<{ id: string; externalAccountId: string; accountId: string }>;
+  ignoredAccountIds?: string[];
 }
 
 /**
@@ -344,6 +347,7 @@ export function suggestionFromSnapshot(
     currency: snapshot.currency,
     currentBalance: snapshot.currentBalance,
     availableBalance: snapshot.availableBalance,
+    ignored: context.ignoredAccountIds?.includes(snapshot.externalAccountId) ?? false,
     mappedAccountSourceId: existing?.id ?? null,
     suggestedAccountId: existing?.accountId ?? suggestion?.id ?? null,
     suggestionReason: existing ? 'Existing mapping' : suggestion?.reason ?? null,
@@ -389,7 +393,7 @@ export async function inventorySuggestions(connectionId: string): Promise<Invent
     throw new AppError(400, 'Account inventory is only available for Plaid connections.', 'UNSUPPORTED_PROVIDER');
   }
 
-  const [snapshot, localAccounts, existingSources] = await Promise.all([
+  const [snapshot, localAccounts, existingSources, ignoredAccounts] = await Promise.all([
     fetchProviderInventory(connectionId),
     prisma.account.findMany({
       where: { isActive: true },
@@ -399,6 +403,7 @@ export async function inventorySuggestions(connectionId: string): Promise<Invent
       where: { connectionId, status: { not: 'REMOVED' } },
       select: { id: true, externalAccountId: true, accountId: true },
     }),
+    prisma.ignoredBankAccount.findMany({ where: { connectionId }, select: { externalAccountId: true } }),
   ]);
 
   const accounts = snapshot.map((item) =>
@@ -407,6 +412,7 @@ export async function inventorySuggestions(connectionId: string): Promise<Invent
       institutionName: connection.institutionName,
       localAccounts,
       existingSources,
+      ignoredAccountIds: ignoredAccounts.map((account) => account.externalAccountId),
     }));
 
   return { connectionId: connection.id, environment: connection.environment, accounts };
@@ -624,6 +630,7 @@ async function mappedSourceSuggestions(connectionId: string): Promise<ProviderAc
       currency: source.currency,
       currentBalance: balance,
       availableBalance: balance,
+      ignored: false,
       mappedAccountSourceId: source.id,
       suggestedAccountId: source.accountId,
       suggestionReason: 'Existing mapping',
@@ -658,7 +665,7 @@ export interface MappingInput {
   sessionId: string;
   mappings: Array<{
     externalAccountId: string;
-    action: 'MAP' | 'CREATE';
+    action: 'MAP' | 'CREATE' | 'IGNORE';
     accountId?: string | null;
     label?: string | null;
     type?: string | null;
@@ -686,24 +693,43 @@ export async function applyAccountMappings(input: MappingInput): Promise<Awaited
   }
 
   await prisma.$transaction(async (tx) => {
+    // Match the sync worker's job-before-connection lock order and enqueue in
+    // this transaction, so a crash cannot leave a mapping without sync work.
+    await lockSyncQueue(tx, 'CONNECTION_SYNC', connection.id);
+    await tx.$queryRaw`SELECT id FROM "SyncJob" WHERE "connectionId" = ${connection.id}
+      AND "jobType" = 'CONNECTION_SYNC' AND status IN ('QUEUED', 'RUNNING') ORDER BY id FOR UPDATE`;
     // Serialize mapping and fence syncs that used the old account inventory.
     const guarded = await tx.bankConnection.updateMany({
       where: { id: connection.id, version: connection.version, status: { not: 'DISCONNECTED' } },
       data: { version: { increment: 1 } },
     });
     if (guarded.count !== 1) throw new AppError(409, 'Connection changed; refresh and try again.', 'CONNECTION_CHANGED');
+    const currentConnection = await tx.bankConnection.findUniqueOrThrow({ where: { id: connection.id }, select: { transactionCursor: true } });
 
     for (const mapping of input.mappings) {
       const snapshot = byId.get(mapping.externalAccountId)!;
-      const currency = snapshot.currency;
-      if (!currency) throw new AppError(409, 'The bank did not supply a supported currency for this account.', 'CURRENCY_UNAVAILABLE');
       const existing = await tx.accountSource.findUnique({ where: { connectionId_externalAccountId: {
         connectionId: connection.id, externalAccountId: mapping.externalAccountId,
       } } });
+      if (mapping.action === 'IGNORE') {
+        if (existing) throw new AppError(409, 'A mapped account must be reconciled before it can be excluded.', 'ACCOUNT_ALREADY_MAPPED');
+        await tx.ignoredBankAccount.upsert({ where: { connectionId_externalAccountId: { connectionId: connection.id, externalAccountId: mapping.externalAccountId } },
+          create: { connectionId: connection.id, externalAccountId: mapping.externalAccountId }, update: {} });
+        continue;
+      }
+      const currency = snapshot.currency;
+      if (!currency) throw new AppError(409, 'The bank did not supply a supported currency for this account.', 'CURRENCY_UNAVAILABLE');
       if (existing) {
         if (mapping.action === 'MAP' && mapping.accountId === existing.accountId) continue;
         throw new AppError(409, 'This bank account is already mapped. Use reconciliation to change it.', 'ACCOUNT_ALREADY_MAPPED');
       }
+      const ignored = await tx.ignoredBankAccount.findUnique({ where: { connectionId_externalAccountId: {
+        connectionId: connection.id, externalAccountId: mapping.externalAccountId,
+      } } });
+      if (ignored && currentConnection.transactionCursor !== null) {
+        throw new AppError(409, 'This account was excluded while sync advanced; its earlier history cannot be recovered from the current cursor. Link it separately and reconcile its history.', 'EXCLUDED_ACCOUNT_HISTORY_UNAVAILABLE');
+      }
+      await tx.ignoredBankAccount.deleteMany({ where: { connectionId: connection.id, externalAccountId: mapping.externalAccountId } });
       let accountId: string;
       if (mapping.action === 'MAP') {
         const account = await tx.account.findUnique({ where: { id: mapping.accountId! } });
@@ -737,8 +763,8 @@ export async function applyAccountMappings(input: MappingInput): Promise<Awaited
         await tx.account.update({ where: { id: accountId }, data: { ingestionState: 'MIGRATING', candidateSourceId: source.id } });
       }
     }
+    await enqueueSyncJob({ jobType: 'CONNECTION_SYNC', trigger: 'MANUAL', connectionId: connection.id, payload: { reason: 'ACCOUNT_MAPPING' } }, tx);
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
-  await enqueueSyncJob({ jobType: 'CONNECTION_SYNC', trigger: 'MANUAL', connectionId: connection.id, payload: { reason: 'ACCOUNT_MAPPING' } });
   return getBankConnectionDto(input.connectionId);
 }
 

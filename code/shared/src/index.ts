@@ -5,6 +5,7 @@ export * from './bank/crypto';
 export * from './bank/normalization';
 export * from './bank/owner-auth';
 export * from './bank/rotation';
+export * from './bank/reconciliation';
 export * from './bank/plaid';
 export * from './bank/sync-queue';
 export * from './bank/types';

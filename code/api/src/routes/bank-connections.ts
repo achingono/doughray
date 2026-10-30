@@ -1,5 +1,7 @@
 import { Router } from 'express';
+import { Prisma } from '@prisma/client';
 import { z } from 'zod';
+import { lockSyncQueue, NORMALIZATION_VERSION } from '@doughray/shared';
 import { AppError } from '../middleware/error-handler';
 import { prisma } from '../lib/prisma';
 import {
@@ -25,7 +27,7 @@ const ACCOUNT_MAPPING_SCHEMA = z.object({
   mappings: z.array(
     z.object({
       externalAccountId: z.string().min(1).max(256),
-      action: z.enum(['MAP', 'CREATE']),
+      action: z.enum(['MAP', 'CREATE', 'IGNORE']),
       accountId: z.string().min(1).max(64).nullish(),
       label: z.string().max(160).nullish(),
       type: z.string().max(32).nullish(),
@@ -61,6 +63,45 @@ router.get('/:id/accounts', async (req, res, next) => {
   } catch (err) {
     next(err);
   }
+});
+
+const REPAIR_SCHEMA = z.object({ patch: z.object({
+  amount: z.number().finite().optional(), date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  name: z.string().min(1).max(512).optional(), iso_currency_code: z.string().regex(/^[A-Za-z]{3}$/).optional(),
+}).strict() });
+
+router.get('/:id/quarantine', async (req, res, next) => {
+  try {
+    await requireConnection(req.params.id);
+    const rows = await prisma.quarantineItem.findMany({ where: { connectionId: req.params.id, status: { in: ['OPEN', 'REPLAYING'] } }, orderBy: { createdAt: 'desc' } });
+    res.json({ data: rows.map((row) => ({ id: row.id, status: row.status, reason: row.reason, replayCount: row.replayCount,
+      record: (row.sourcePayload as { record?: unknown }).record ?? null })) });
+  } catch (error) { next(error); }
+});
+
+router.post('/:id/quarantine/:itemId/replay', async (req, res, next) => {
+  try {
+    const parsed = REPAIR_SCHEMA.safeParse(req.body);
+    if (!parsed.success) throw new AppError(400, 'Invalid repair values.', 'VALIDATION_ERROR');
+    const result = await prisma.$transaction(async (tx) => {
+      await lockSyncQueue(tx, 'CONNECTION_SYNC', req.params.id);
+      await tx.$queryRaw`SELECT id FROM "SyncJob" WHERE "connectionId" = ${req.params.id}
+        AND "jobType" = 'CONNECTION_SYNC' AND status IN ('QUEUED', 'RUNNING') ORDER BY id FOR UPDATE`;
+      const item = await tx.quarantineItem.findFirst({ where: { id: req.params.itemId, connectionId: req.params.id, status: 'OPEN' } });
+      if (!item) throw new AppError(409, 'The quarantine item is no longer available.', 'QUARANTINE_STALE');
+      const connection = await tx.bankConnection.findUniqueOrThrow({ where: { id: req.params.id } });
+      const payload = item.sourcePayload as { fingerprint?: string; cursorStart?: string | null; ruleVersion?: number };
+      if (!payload.fingerprint || payload.cursorStart !== connection.transactionCursor || payload.ruleVersion !== NORMALIZATION_VERSION || connection.pausedAt) {
+        throw new AppError(409, 'The bank update or normalization rules changed; sync again before repairing this item.', 'QUARANTINE_STALE');
+      }
+      await tx.quarantineItem.update({ where: { id: item.id }, data: { status: 'REPLAYING', replayCount: { increment: 1 },
+        lastReplayAt: new Date(), sourcePayload: { ...(item.sourcePayload as Prisma.JsonObject), patch: parsed.data.patch } as Prisma.InputJsonObject } });
+      const job = await enqueueSyncJob({ jobType: 'CONNECTION_SYNC', trigger: 'MANUAL', connectionId: req.params.id,
+        payload: { reason: 'QUARANTINE_REPLAY' } }, tx);
+      return { jobId: job.jobId };
+    });
+    res.status(202).json({ data: result });
+  } catch (error) { next(error); }
 });
 
 router.post('/:id/account-mappings', async (req, res, next) => {
