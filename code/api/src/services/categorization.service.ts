@@ -1,5 +1,5 @@
 import { Prisma } from '@prisma/client';
-import { sanitizeAiText } from '@doughray/shared';
+import { sanitizeAiText, reconcileLoanTransactions } from '@doughray/shared';
 import openai, {
   getMissingOpenAIConfig,
   getOpenAIModel,
@@ -55,9 +55,12 @@ async function categorizeBatch(
     if (!resolvedCategoryId) continue;
 
     try {
-      await prisma.transaction.update({
-        where: { id: assignment.transactionId, isReviewed: false, categoryId: null, status: 'POSTED' },
-        data: { categoryId: resolvedCategoryId, categoryOwnership: 'AI' },
+      await prisma.$transaction(async (tx) => {
+        const updated = await tx.transaction.update({
+          where: { id: assignment.transactionId, isReviewed: false, categoryId: null, status: 'POSTED' },
+          data: { categoryId: resolvedCategoryId, categoryOwnership: 'AI' },
+        });
+        await reconcileLoanTransactions(tx, [updated.id]);
       });
       categorized += 1;
     } catch (err) {

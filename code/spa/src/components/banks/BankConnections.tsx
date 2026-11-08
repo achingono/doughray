@@ -1,12 +1,54 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { usePlaidLink, type PlaidLinkOnSuccessMetadata } from 'react-plaid-link';
-import { api, type BankConnection, type BankQuarantineItem, type MigrationReview, type PlaidAccountSuggestion, type PlaidLinkAttempt } from '@/lib/api';
+import { api, type BankConnection, type BankQuarantineItem, type MigrationReview, type PlaidAccountSuggestion, type PlaidLinkAttempt, type ReconciliationMatch } from '@/lib/api';
 import type { Account } from '@/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 
 const ATTEMPT_KEY = 'doughray:plaid-link';
+
+function MatchSearch({ connectionId, batchId, candidateId, label, disabled, onSelect }: {
+  connectionId: string; batchId: string; candidateId: string; label: string; disabled: boolean; onSelect: (match: ReconciliationMatch) => void;
+}) {
+  const [term, setTerm] = useState('');
+  const [result, setResult] = useState<{ matches: Array<ReconciliationMatch & { updatedAt: string }>; hasMore: boolean; page: number } | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [error, setError] = useState('');
+  const search = async (page: number) => {
+    setSearching(true); setError('');
+    try { setResult((await api.searchBankMatches(connectionId, batchId, candidateId, term, page)).data); }
+    catch (failure) { setError(failure instanceof Error ? failure.message : 'Unable to search transactions.'); }
+    finally { setSearching(false); }
+  };
+  const include = async (match: ReconciliationMatch & { updatedAt: string }) => {
+    setSearching(true); setError('');
+    try { onSelect((await api.includeBankMatch(connectionId, batchId, candidateId, match)).data); setResult(null); }
+    catch (failure) { setError(failure instanceof Error ? failure.message : 'Unable to select this match.'); }
+    finally { setSearching(false); }
+  };
+  return <div className="space-y-2 rounded-md border p-2">
+    <div className="flex gap-2">
+      <input aria-label={`Search older matches for ${label}`} value={term} onChange={(event) => setTerm(event.target.value)}
+        placeholder="Search description or payee" className="min-w-0 flex-1 rounded-md border bg-background p-2" />
+      <Button variant="outline" size="sm" disabled={disabled || searching} onClick={() => void search(1)}>Search matches</Button>
+    </div>
+    <p className="text-xs text-muted-foreground">Searches this account for the same amount and currency, including other dates.</p>
+    {error && <p role="alert">{error}</p>}
+    {result && <div className="space-y-1">
+      {result.matches.length === 0 && <p>No matches found.</p>}
+      {result.matches.map((match) => <div key={match.id} className="flex items-center justify-between gap-2">
+        <span>{match.posted.slice(0, 10)} · {match.amount} · {match.description}</span>
+        <Button variant="outline" size="sm" disabled={disabled || searching} onClick={() => void include(match)}>Use match</Button>
+      </div>)}
+      <div className="flex gap-2">
+        <Button variant="outline" size="sm" disabled={disabled || searching || result.page <= 1} onClick={() => void search(result.page - 1)}>Previous</Button>
+        <span>Page {result.page}</span>
+        <Button variant="outline" size="sm" disabled={disabled || searching || !result.hasMore} onClick={() => void search(result.page + 1)}>Next</Button>
+      </div>
+    </div>}
+  </div>;
+}
 
 function LinkLauncher({ attempt, onSuccess, onExit }: {
   attempt: PlaidLinkAttempt;
@@ -248,18 +290,26 @@ export function BankConnections() {
         </div>}
         {selected && review && <div className="space-y-3 rounded-md border p-3">
           <h3 className="font-medium">Review imported history</h3>
-          <p className="text-sm text-muted-foreground">For each Plaid transaction, choose its matching existing transaction or confirm that it is new. The list shows up to 100 transactions within three days. If a known match is missing, leave the review unfinished. Existing categories and review decisions are retained.</p>
+          <p className="text-sm text-muted-foreground">For each Plaid transaction, choose its matching existing transaction or confirm that it is new. Suggestions cover up to 100 transactions within three days; search can find matches on other dates. Existing categories and review decisions are retained.</p>
           {review.cases.map((item) => <div key={item.id} className="space-y-3">
             <h4 className="font-medium">{item.accountName}</h4>
-            {item.candidates.map((candidate) => <label key={candidate.id} className="block space-y-1 text-sm">
-              <span>{candidate.evidence.change.postedDate} · {candidate.evidence.change.amount} {candidate.evidence.change.currency} · {candidate.evidence.change.observedFacts.description}</span>
-              <select aria-label={`Match for ${candidate.evidence.change.observedFacts.description} ${candidate.evidence.change.postedDate}`} value={decisions[candidate.id] ?? ''}
+            {item.candidates.map((candidate) => <div key={candidate.id} className="block space-y-1 text-sm">
+              <label htmlFor={`match-${candidate.id}`}>{candidate.evidence.change.postedDate} · {candidate.evidence.change.amount} {candidate.evidence.change.currency} · {candidate.evidence.change.observedFacts.description}</label>
+              <select id={`match-${candidate.id}`} aria-label={`Match for ${candidate.evidence.change.observedFacts.description} ${candidate.evidence.change.postedDate}`} value={decisions[candidate.id] ?? ''}
                 onChange={(event) => setDecisions((current) => ({ ...current, [candidate.id]: event.target.value }))}
                 className="block w-full rounded-md border bg-background p-2">
                 <option value="">Choose an action</option><option value="new">This is a new transaction</option>
-                {candidate.evidence.candidates.map((match) => <option key={match.id} value={match.id}>Match: {match.posted.slice(0, 10)} · {match.amount} · {match.description}{Number(match.amount) !== Number(candidate.evidence.change.amount) ? ' (amount differs)' : ''}</option>)}
+                {candidate.evidence.candidates.map((match) => <option key={match.id} value={match.id}>Match: {match.posted.slice(0, 10)} · {match.amount} · {match.description}{match.searched ? ' (searched)' : ''}</option>)}
               </select>
-            </label>)}
+              <MatchSearch connectionId={selected} batchId={review.batchId} candidateId={candidate.id} disabled={busy}
+                label={`${candidate.evidence.change.observedFacts.description} ${candidate.evidence.change.postedDate}`} onSelect={(match) => {
+                  setReview((current) => current ? { ...current, cases: current.cases.map((reviewCase) => ({ ...reviewCase,
+                    candidates: reviewCase.candidates.map((entry) => entry.id === candidate.id ? { ...entry,
+                      evidence: { ...entry.evidence, candidates: [...entry.evidence.candidates.filter((existing) => existing.id !== match.id), match] } } : entry),
+                  })) } : current);
+                  setDecisions((current) => ({ ...current, [candidate.id]: match.id }));
+                }} />
+            </div>)}
           </div>)}
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" size="sm" disabled={busy} onClick={() => void run(async () => {
@@ -272,9 +322,9 @@ export function BankConnections() {
             <Button size="sm" disabled={busy || review.cases.some((item) => item.candidates.some((candidate) => !decisions[candidate.id]))} onClick={() => {
               const conflicts = review.cases.flatMap((item) => item.candidates).filter((candidate) => {
                 const match = candidate.evidence.candidates.find((item) => item.id === decisions[candidate.id]);
-                return match && Number(match.amount) !== Number(candidate.evidence.change.amount);
+                return match?.searched && match.posted.slice(0, 10) !== candidate.evidence.change.postedDate;
               }).length;
-              if (!window.confirm(`Apply these matches and switch the mapped accounts to Plaid?${conflicts ? ` ${conflicts} selected match(es) have different amounts and will use Plaid's amount.` : ''}`)) return;
+              if (!window.confirm(`Apply these matches and switch the mapped accounts to Plaid?${conflicts ? ` ${conflicts} searched match(es) have a different date and will use Plaid's date.` : ''}`)) return;
               const items = review.cases.flatMap((item) => item.candidates.map((candidate) => decisions[candidate.id] === 'new'
                 ? { candidateId: candidate.id, action: 'NEW_TRANSACTION' as const }
                 : { candidateId: candidate.id, action: 'SAME_TRANSACTION' as const, transactionId: decisions[candidate.id] }));

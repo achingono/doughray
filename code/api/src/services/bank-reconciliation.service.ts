@@ -5,9 +5,68 @@ import { prisma } from '../lib/prisma';
 import { AppError } from '../middleware/error-handler';
 import { enqueueSyncJob } from './sync-queue.service';
 
-type Evidence = { change: NormalizedTransactionChange; candidates: Array<{ id: string; posted: string; amount: string; description: string; payee: string | null }> };
+type MatchEvidence = { id: string; posted: string; amount: string; description: string; payee: string | null; searched?: boolean; updatedAt?: string };
+type Evidence = { change: NormalizedTransactionChange; candidates: MatchEvidence[] };
 type Manifest = { batchId: string; connectionVersion: number };
 export type MigrationDecision = { candidateId: string; action: 'SAME_TRANSACTION' | 'NEW_TRANSACTION'; transactionId?: string };
+
+async function currentSearchCandidate(db: Prisma.TransactionClient, connectionId: string, batchId: string, candidateId: string) {
+  const batch = await db.syncBatch.findFirst({ where: { id: batchId, connectionId, status: 'STAGED' } });
+  const candidate = await db.reconciliationCandidate.findUnique({ where: { id: candidateId }, include: { case: true } });
+  if (!batch || !candidate || candidate.case.connectionId !== connectionId || candidate.case.status !== 'OPEN' ||
+      (candidate.case.manifest as unknown as Manifest | null)?.batchId !== batchId) {
+    throw new AppError(409, 'The review is no longer current.', 'REVIEW_STALE');
+  }
+  const connection = await db.bankConnection.findUniqueOrThrow({ where: { id: connectionId } });
+  const manifest = candidate.case.manifest as unknown as Manifest;
+  if (connection.pausedAt || connection.version !== manifest.connectionVersion || (connection.transactionCursor ?? '') !== batch.cursorStart) {
+    throw new AppError(409, 'The connection changed; refresh the review.', 'REVIEW_STALE');
+  }
+  return candidate;
+}
+
+/** Search the same account and exact amount outside the initial date window. */
+export async function searchMigrationMatches(connectionId: string, batchId: string, candidateId: string, term: string, page: number) {
+  const candidate = await currentSearchCandidate(prisma, connectionId, batchId, candidateId);
+  const evidence = candidate.evidence as unknown as Evidence;
+  const account = await prisma.account.findUniqueOrThrow({ where: { id: candidate.accountId }, select: { currency: true } });
+  const currency = account.currency.toUpperCase();
+  if (currency !== evidence.change.currency.toUpperCase()) throw new AppError(409, 'Account currency changed; refresh the review.', 'REVIEW_STALE');
+  const rows = await prisma.transaction.findMany({ where: { accountId: candidate.accountId, status: 'POSTED', amount: evidence.change.amount,
+    AND: [{ OR: [{ isoCurrencyCode: null }, { isoCurrencyCode: currency }] },
+      ...(term ? [{ OR: [{ description: { contains: term, mode: 'insensitive' as const } }, { payee: { contains: term, mode: 'insensitive' as const } }] }] : [])] },
+    select: { id: true, posted: true, amount: true, description: true, payee: true, updatedAt: true },
+    orderBy: [{ posted: 'desc' }, { id: 'desc' }], skip: (page - 1) * 25, take: 26 });
+  return { matches: rows.slice(0, 25), hasMore: rows.length > 25, page };
+}
+
+/** Record only the explicitly selected search result; it must still match the displayed version. */
+export async function includeMigrationMatch(connectionId: string, batchId: string, candidateId: string, transactionId: string, displayedUpdatedAt: string) {
+  return prisma.$transaction(async (tx) => {
+    await lockSyncQueue(tx, 'CONNECTION_SYNC', connectionId);
+    await tx.$queryRaw`SELECT id FROM "SyncJob" WHERE "connectionId" = ${connectionId}
+      AND "jobType" = 'CONNECTION_SYNC' AND status IN ('QUEUED', 'RUNNING') ORDER BY id FOR UPDATE`;
+    const candidate = await currentSearchCandidate(tx, connectionId, batchId, candidateId);
+    await tx.$queryRaw`SELECT id FROM "Transaction" WHERE id = ${transactionId} FOR UPDATE`;
+    const current = await tx.transaction.findUnique({ where: { id: transactionId } });
+    const account = await tx.account.findUniqueOrThrow({ where: { id: candidate.accountId }, select: { currency: true } });
+    const evidence = candidate.evidence as unknown as Evidence;
+    const currency = account.currency.toUpperCase();
+    if (!current || current.accountId !== candidate.accountId || current.status !== 'POSTED' ||
+        current.updatedAt.toISOString() !== displayedUpdatedAt || !current.amount.equals(evidence.change.amount) ||
+        currency !== evidence.change.currency.toUpperCase() || (current.isoCurrencyCode !== null && current.isoCurrencyCode.toUpperCase() !== currency)) {
+      throw new AppError(409, 'The selected transaction changed or is not eligible; search again.', 'MATCH_STALE');
+    }
+    const match: MatchEvidence = { id: current.id, posted: current.posted.toISOString(), amount: current.amount.toString(),
+      description: current.description, payee: current.payee, searched: true, updatedAt: current.updatedAt.toISOString() };
+    const candidates = evidence.candidates.filter((item) => item.id !== current.id);
+    if (candidates.length >= 200) throw new AppError(400, 'Too many matches have been added to this transaction.', 'MATCH_LIMIT');
+    await tx.reconciliationCandidate.update({ where: { id: candidateId }, data: { evidence: {
+      ...evidence, candidates: [...candidates, match],
+    } as unknown as Prisma.InputJsonObject } });
+    return match;
+  });
+}
 
 export async function getMigrationReview(connectionId: string) {
   const batch = await prisma.syncBatch.findFirst({ where: { connectionId, status: 'STAGED' }, orderBy: { stagedAt: 'desc' } });
@@ -125,7 +184,8 @@ export async function commitMigrationReview(connectionId: string, batchId: strin
             (current.isoCurrencyCode !== null && current.isoCurrencyCode.toUpperCase() !== account.currency.toUpperCase()) ||
             !current.amount.equals(evidence.change.amount) ||
             !current.amount.equals(original.amount) || current.posted.getTime() !== new Date(original.posted).getTime() ||
-            Math.abs(current.posted.getTime() - date.getTime()) > 3 * 86400000) {
+            (original.searched ? current.updatedAt.toISOString() !== original.updatedAt || current.description !== original.description || current.payee !== original.payee
+              : Math.abs(current.posted.getTime() - date.getTime()) > 3 * 86400000)) {
           throw new AppError(409, 'A matching transaction changed; refresh the review.', 'REVIEW_STALE');
         }
         matchedIds.add(current.id);

@@ -3,9 +3,11 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { BankProviderErrorKind, bankProviderError, PlaidProvider, encryptSecret, decryptSecret, encryptRecoverySecret, decryptRecoverySecret, rotateBankTokenKeys, enqueueBankSync, type NormalizedTransactionChange, type ProviderSyncPage } from '@doughray/shared';
 import prisma from '../lib/prisma';
 import { claimNextSyncJob, processNextSyncJob } from './sync-queue';
-import { commitMigrationReview, discardMigrationReview, getMigrationReview, saveMigrationDraft, getUndoableMigration, undoMigrationReview } from '../../../api/src/services/bank-reconciliation.service';
+import { commitMigrationReview, discardMigrationReview, getMigrationReview, saveMigrationDraft, getUndoableMigration, undoMigrationReview, searchMigrationMatches, includeMigrationMatch } from '../../../api/src/services/bank-reconciliation.service';
 import { syncConnection } from './sync-connection';
 import { getReportById, getReports } from '../../../api/src/services/report.service';
+import { updateTransactionCategory } from '../../../api/src/services/transaction.service';
+import { runTrackingForAccount } from '../../../api/src/services/loan-transaction.service';
 import { prisma as apiPrisma } from '../../../api/src/lib/prisma';
 import { applyAccountMappings, disconnectConnection, inventorySuggestions } from '../../../api/src/services/plaid-link.service';
 import express from 'express';
@@ -318,6 +320,8 @@ databaseTests('Plaid sync with PostgreSQL', () => {
       amount: '-88.00', posted: new Date('2026-10-29T00:00:00Z'), description: 'Existing merchant' } });
     const differentCurrency = await prisma.transaction.create({ data: { externalId: `different-currency-${suffix}`, accountId: legacy.id,
       amount: '-12.34', posted: new Date('2026-10-29T00:00:00Z'), description: 'Existing merchant', isoCurrencyCode: 'USD' } });
+    const older = await prisma.transaction.create({ data: { externalId: `older-match-${suffix}`, accountId: legacy.id,
+      amount: '-12.34', posted: new Date('2026-08-01T00:00:00Z'), description: 'Older merchant', isoCurrencyCode: 'CAD' } });
     const pendingLegacy = { ...change(`legacy-pending-${suffix}`, 'PENDING'), externalAccountId: `legacy-${suffix}` };
     const candidate = { ...change(`legacy-plaid-${suffix}`, 'POSTED', pendingLegacy.externalTransactionId), externalAccountId: `legacy-${suffix}` };
     const repeated = { ...change(`legacy-plaid-repeat-${suffix}`, 'POSTED'), externalAccountId: `legacy-${suffix}` };
@@ -328,9 +332,21 @@ databaseTests('Plaid sync with PostgreSQL', () => {
     expect(review?.cases[0].candidates[0].evidence.candidates.map((item) => item.id)).toContain(old.id);
     expect(review?.cases[0].candidates[0].evidence.candidates.map((item) => item.id)).not.toContain(differentAmount.id);
     expect(review?.cases[0].candidates[0].evidence.candidates.map((item) => item.id)).not.toContain(differentCurrency.id);
-    await prisma.transaction.deleteMany({ where: { id: { in: [differentAmount.id, differentCurrency.id] } } });
+    expect(review?.cases[0].candidates[0].evidence.candidates.map((item) => item.id)).not.toContain(older.id);
     const reviewedCandidates = review!.cases[0].candidates;
-    const draft = [{ candidateId: reviewedCandidates[0].id, action: 'SAME_TRANSACTION' as const, transactionId: old.id }];
+    const search = await searchMigrationMatches(connectionId, review!.batchId, reviewedCandidates[0].id, 'merchant', 1);
+    expect(search.matches.map((item) => item.id)).toContain(older.id);
+    expect(search.matches.map((item) => item.id)).not.toContain(differentAmount.id);
+    expect(search.matches.map((item) => item.id)).not.toContain(differentCurrency.id);
+    const searched = search.matches.find((item) => item.id === older.id)!;
+    await expect(includeMigrationMatch(connectionId, review!.batchId, reviewedCandidates[0].id, differentCurrency.id,
+      differentCurrency.updatedAt.toISOString())).rejects.toThrow('not eligible');
+    await prisma.transaction.update({ where: { id: older.id }, data: { description: 'Older merchant updated' } });
+    await expect(includeMigrationMatch(connectionId, review!.batchId, reviewedCandidates[0].id, older.id,
+      searched.updatedAt.toISOString())).rejects.toThrow('changed or is not eligible');
+    const updated = (await searchMigrationMatches(connectionId, review!.batchId, reviewedCandidates[0].id, 'older', 1)).matches[0];
+    await includeMigrationMatch(connectionId, review!.batchId, reviewedCandidates[0].id, older.id, updated.updatedAt.toISOString());
+    const draft = [{ candidateId: reviewedCandidates[0].id, action: 'SAME_TRANSACTION' as const, transactionId: older.id }];
     const draftAttempts = await Promise.allSettled([
       saveMigrationDraft(connectionId, review!.batchId, review!.draftVersion, draft),
       saveMigrationDraft(connectionId, review!.batchId, review!.draftVersion, draft),
@@ -339,6 +355,8 @@ databaseTests('Plaid sync with PostgreSQL', () => {
     const reopened = await getMigrationReview(connectionId);
     expect(reopened!.cases[0].draft).toEqual(draft);
     expect(reopened!.draftVersion).toBe(review!.draftVersion + 1);
+    expect(reopened!.cases[0].candidates[0].evidence.candidates).toContainEqual(expect.objectContaining({ id: older.id, searched: true }));
+    await prisma.transaction.deleteMany({ where: { id: { in: [older.id, differentAmount.id, differentCurrency.id] } } });
     await expect(commitMigrationReview(connectionId, review!.batchId, reviewedCandidates.map((item) => ({ candidateId: item.id,
       action: 'SAME_TRANSACTION' as const, transactionId: old.id })))).rejects.toThrow('distinct suggested match');
     expect((await prisma.account.findUniqueOrThrow({ where: { id: legacy.id } })).ingestionState).toBe('MIGRATING');
@@ -383,6 +401,56 @@ databaseTests('Plaid sync with PostgreSQL', () => {
     });
     expect((await prisma.transaction.findUniqueOrThrow({ where: { id: newSource.transactionId } })).status).toBe('REMOVED');
     expect(await getUndoableMigration(connectionId)).toBeNull();
+  });
+
+  it('commits an explicitly searched same-amount match outside the suggestion window', async () => {
+    await prisma.syncJob.deleteMany({ where: { status: 'QUEUED' } });
+    const itemId = `search-${suffix}`;
+    const secret = encryptSecret('fixture-token', key, 1, { provider: 'PLAID', environment: 'SANDBOX', externalItemId: itemId });
+    const conn = await prisma.bankConnection.create({ data: { provider: 'PLAID', environment: 'SANDBOX', externalItemId: itemId,
+      tokenCiphertext: secret.ciphertext, tokenNonce: secret.nonce, tokenAuthTag: secret.authTag, tokenKeyVersion: 1 } });
+    const account = await prisma.account.create({ data: { externalId: `search-account-${suffix}`, name: 'Search fixture', currency: 'CAD',
+      type: 'CHECKING', balance: 100, balanceDate: new Date(), ingestionState: 'MIGRATING' } });
+    try {
+      const source = await prisma.accountSource.create({ data: { connectionId: conn.id, accountId: account.id, externalAccountId: `search-bank-${suffix}`, currency: 'CAD' } });
+      await prisma.account.update({ where: { id: account.id }, data: { candidateSourceId: source.id } });
+      const old = await prisma.transaction.create({ data: { externalId: `search-old-${suffix}`, accountId: account.id, amount: '-12.34',
+        posted: new Date('2026-08-01T00:00:00Z'), description: 'Older match' } });
+      await prisma.transaction.createMany({ data: Array.from({ length: 26 }, (_, index) => ({
+        externalId: `search-extra-${index}-${suffix}`, accountId: account.id, amount: '-12.34',
+        posted: new Date('2026-07-01T00:00:00Z'), description: `Older fixture ${index}`,
+      })) });
+      vi.spyOn(PlaidProvider.prototype, 'syncPage').mockResolvedValue(page([{ ...change(`search-new-${suffix}`, 'POSTED'), externalAccountId: source.externalAccountId }], 'search-cursor'));
+      vi.spyOn(PlaidProvider.prototype, 'listAccounts').mockResolvedValue([]);
+      await enqueueBankSync(prisma, { jobType: 'CONNECTION_SYNC', trigger: 'MANUAL', connectionId: conn.id });
+      expect(await processAvailableJob(conn.id)).toBe(true);
+      const review = (await getMigrationReview(conn.id))!;
+      const candidate = review.cases[0].candidates[0];
+      const firstPage = await searchMigrationMatches(conn.id, review.batchId, candidate.id, 'Older', 1);
+      const secondPage = await searchMigrationMatches(conn.id, review.batchId, candidate.id, 'Older', 2);
+      expect(firstPage.matches).toHaveLength(25);
+      expect(firstPage.hasMore).toBe(true);
+      expect(secondPage.matches).toHaveLength(2);
+      expect(secondPage.hasMore).toBe(false);
+      expect(new Set([...firstPage.matches, ...secondPage.matches].map((item) => item.id)).size).toBe(27);
+      const match = firstPage.matches.find((item) => item.id === old.id)!;
+      await includeMigrationMatch(conn.id, review.batchId, candidate.id, old.id, match.updatedAt.toISOString());
+      await prisma.transaction.update({ where: { id: old.id }, data: { description: 'Older match changed' } });
+      await expect(commitMigrationReview(conn.id, review.batchId, [{ candidateId: candidate.id, action: 'SAME_TRANSACTION', transactionId: old.id }]))
+        .rejects.toThrow('matching transaction changed');
+      const refreshed = (await searchMigrationMatches(conn.id, review.batchId, candidate.id, 'Older', 1)).matches[0];
+      await includeMigrationMatch(conn.id, review.batchId, candidate.id, old.id, refreshed.updatedAt.toISOString());
+      await commitMigrationReview(conn.id, review.batchId, [{ candidateId: candidate.id, action: 'SAME_TRANSACTION', transactionId: old.id }]);
+      expect(await prisma.transactionSource.findUnique({ where: { accountSourceId_externalTransactionId: {
+        accountSourceId: source.id, externalTransactionId: `search-new-${suffix}`,
+      } } })).toMatchObject({ transactionId: old.id });
+    } finally {
+      vi.restoreAllMocks();
+      await prisma.reconciliationCase.deleteMany({ where: { connectionId: conn.id } });
+      await prisma.bankConnection.delete({ where: { id: conn.id } });
+      await prisma.account.delete({ where: { id: account.id } });
+      await prisma.syncJob.deleteMany({ where: { jobType: 'CATEGORIZE', status: 'QUEUED' } });
+    }
   });
 
   it('validates account membership before atomically mapping an existing account', async () => {
@@ -627,6 +695,44 @@ databaseTests('Plaid sync with PostgreSQL', () => {
     expect((await prisma.quarantineItem.findUniqueOrThrow({ where: { id: item.id } })).status).toBe('RESOLVED');
     await prisma.syncJob.deleteMany({ where: { jobType: 'CATEGORIZE', status: 'QUEUED' } });
     vi.restoreAllMocks();
+  });
+
+  it('reconciles derived loan links after Plaid corrections, categorization and removals', async () => {
+    await prisma.syncJob.deleteMany({ where: { status: 'QUEUED' } });
+    const loan = await prisma.account.create({ data: { externalId: `loan-${suffix}`, name: 'Loan fixture', currency: 'CAD',
+      type: 'LOAN', balance: -1000, balanceDate: new Date() } });
+    const loanCategory = await prisma.category.create({ data: { name: `loan-category-${suffix}` } });
+    try {
+      await prisma.loanTransactionRule.create({ data: { accountId: loan.id, ruleType: 'PAYEE', normalizedPayee: 'fixture mortgage' } });
+      const categoryRule = await prisma.loanTransactionRule.create({ data: { accountId: loan.id, ruleType: 'CATEGORY', categoryId: loanCategory.id } });
+      const id = `loan-payment-${suffix}`;
+      const original = { ...change(id, 'POSTED'), observedFacts: { ...change(id, 'POSTED').observedFacts,
+        description: 'Fixture mortgage payment', payee: 'Fixture mortgage' } };
+      expect((await runSync([original], 'loan-1')).status).toBe('SUCCEEDED');
+      const source = await prisma.transactionSource.findFirstOrThrow({ where: { externalTransactionId: id } });
+      let linked = await prisma.loanTransaction.findFirstOrThrow({ where: { sourceTransactionId: source.transactionId, linkedAccountId: loan.id } });
+      expect(linked.amount.toString()).toBe('-12.34');
+      expect((await runSync([{ ...original, changeType: 'MODIFIED', amount: '-30.00', postedDate: '2026-10-28' }], 'loan-2')).status).toBe('SUCCEEDED');
+      linked = await prisma.loanTransaction.findUniqueOrThrow({ where: { id: linked.id } });
+      expect(linked.amount.toString()).toBe('-30');
+      expect(linked.posted.toISOString()).toBe('2026-10-28T00:00:00.000Z');
+      const changedPayee = { ...original, changeType: 'MODIFIED' as const, observedFacts: { ...original.observedFacts,
+        description: 'Unrelated purchase', payee: 'Other' } };
+      expect((await runSync([changedPayee], 'loan-3')).status).toBe('SUCCEEDED');
+      expect(await prisma.loanTransaction.count({ where: { sourceTransactionId: source.transactionId, linkedAccountId: loan.id } })).toBe(0);
+      await updateTransactionCategory(source.transactionId, loanCategory.id);
+      expect(await prisma.loanTransaction.count({ where: { sourceTransactionId: source.transactionId, linkedAccountId: loan.id } })).toBe(1);
+      await prisma.loanTransactionRule.update({ where: { id: categoryRule.id }, data: { isActive: false } });
+      expect(await runTrackingForAccount(loan.id)).toBe(0);
+      expect(await prisma.loanTransaction.count({ where: { sourceTransactionId: source.transactionId, linkedAccountId: loan.id } })).toBe(0);
+      await prisma.loanTransactionRule.update({ where: { id: categoryRule.id }, data: { isActive: true } });
+      expect(await runTrackingForAccount(loan.id)).toBe(1);
+      expect((await runSync([{ ...original, changeType: 'REMOVED', providerStatus: 'REMOVED' }], 'loan-4')).status).toBe('SUCCEEDED');
+      expect(await prisma.loanTransaction.count({ where: { sourceTransactionId: source.transactionId, linkedAccountId: loan.id } })).toBe(0);
+    } finally {
+      await prisma.account.delete({ where: { id: loan.id } });
+      await prisma.category.delete({ where: { id: loanCategory.id } });
+    }
   });
 
   it('marks reports stale after committed changes, including changes during report generation', async () => {

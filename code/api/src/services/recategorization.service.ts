@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma';
 import { normalizePayee } from '../lib/normalize-payee';
 import { AppError } from '../middleware/error-handler';
+import { reconcileLoanTransactions } from '@doughray/shared';
 
 export type RecategorizeScope = 'single-instance' | 'all-past' | 'all-future' | 'all-past-and-future';
 
@@ -198,23 +199,16 @@ export async function recategorizeTransaction(
       data: targetUpdate,
     });
 
-    if (matchingPast.length > 0) {
-      const eligiblePastIds = matchingPast
+    const eligiblePastIds = matchingPast
         .filter((row) => row.id === target.id || !isManualOverride(row))
         .map((row) => row.id)
         .filter((id) => id !== target.id);
-
-      if (eligiblePastIds.length > 0) {
-        await tx.transaction.updateMany({
-          where: { id: { in: eligiblePastIds } },
-          data: {
-            categoryId,
-            isReviewed: true,
-            categoryRuleId: createdRule?.id ?? null,
-          },
-        });
-      }
+    if (eligiblePastIds.length > 0) {
+      await tx.transaction.updateMany({ where: { id: { in: eligiblePastIds } }, data: {
+        categoryId, isReviewed: true, categoryRuleId: createdRule?.id ?? null,
+      } });
     }
+    await reconcileLoanTransactions(tx, [target.id, ...eligiblePastIds]);
 
     return createdRule;
   });

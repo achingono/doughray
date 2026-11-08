@@ -1,5 +1,5 @@
 import prisma from '../lib/prisma';
-import { sanitizeAiText } from '@doughray/shared';
+import { sanitizeAiText, reconcileLoanTransactions } from '@doughray/shared';
 import openai, {
   getMissingOpenAIConfig,
   getOpenAIModel,
@@ -75,11 +75,14 @@ async function categorizeBatch(
     );
     if (!resolvedCategoryId) continue;
 
-    const updated = await prisma.transaction
-      .update({
+    const updated = await prisma.$transaction(async (tx) => {
+      const transaction = await tx.transaction.update({
         where: { id: assignment.transactionId, isReviewed: false, categoryId: null, status: 'POSTED' },
         data: { categoryId: resolvedCategoryId, categoryOwnership: 'AI' },
-      })
+      });
+      await reconcileLoanTransactions(tx, [transaction.id]);
+      return transaction;
+    })
       .catch(() => {
         return null;
       });
@@ -138,14 +141,12 @@ async function applyCategoryRulesToTransactions(transactionIds: string[]): Promi
     const rule = accountScoped.get(`${tx.accountId}::${key}`) ?? globalRules.get(key);
     if (!rule) continue;
 
-    await prisma.transaction.update({
-      where: { id: tx.id, isReviewed: false, categoryId: null, status: 'POSTED' },
-      data: {
-        categoryId: rule.categoryId,
-        isReviewed: true,
-        categoryRuleId: rule.id,
-        categoryOwnership: 'RULE',
-      },
+    await prisma.$transaction(async (db) => {
+      await db.transaction.update({
+        where: { id: tx.id, isReviewed: false, categoryId: null, status: 'POSTED' },
+        data: { categoryId: rule.categoryId, isReviewed: true, categoryRuleId: rule.id, categoryOwnership: 'RULE' },
+      });
+      await reconcileLoanTransactions(db, [tx.id]);
     });
     applied += 1;
   }

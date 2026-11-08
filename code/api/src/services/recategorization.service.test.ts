@@ -20,6 +20,7 @@ const { prismaMock } = vi.hoisted(() => ({
 }));
 
 vi.mock('../lib/prisma', () => ({ prisma: prismaMock }));
+vi.mock('@doughray/shared', async (importOriginal) => ({ ...(await importOriginal<typeof import('@doughray/shared')>()), reconcileLoanTransactions: vi.fn() }));
 
 import { AppError } from '../middleware/error-handler';
 import { getRecategorizePreview, recategorizeTransaction } from './recategorization.service';

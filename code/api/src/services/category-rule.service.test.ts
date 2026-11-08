@@ -19,6 +19,7 @@ const { prismaMock } = vi.hoisted(() => ({
 }));
 
 vi.mock('../lib/prisma', () => ({ prisma: prismaMock }));
+vi.mock('@doughray/shared', async (importOriginal) => ({ ...(await importOriginal<typeof import('@doughray/shared')>()), reconcileLoanTransactions: vi.fn() }));
 
 import { AppError } from '../middleware/error-handler';
 import { applyCategoryRulesToTransactions, createCategoryRule, deleteCategoryRule, listCategoryRules } from './category-rule.service';
@@ -26,7 +27,8 @@ import { applyCategoryRulesToTransactions, createCategoryRule, deleteCategoryRul
 describe('category-rule.service', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    prismaMock.$transaction.mockImplementation(async (operations: any[]) => Promise.all(operations));
+    prismaMock.$transaction.mockImplementation(async (operations: any[] | ((tx: typeof prismaMock) => Promise<unknown>)) =>
+      typeof operations === 'function' ? operations(prismaMock) : Promise.all(operations));
   });
 
   it('lists category rules with pagination', async () => {

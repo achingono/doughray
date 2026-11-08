@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma';
 import { PaginatedResponse, TransactionFilters, decimalToNumber } from '../lib/types';
+import { reconcileLoanTransactions } from '@doughray/shared';
 
 export interface TransactionListItem {
   id: string;
@@ -138,11 +139,15 @@ export async function getTransactionFilterCategories(filters: Omit<TransactionFi
 }
 
 export async function updateTransactionCategory(id: string, categoryId: string) {
-  return prisma.transaction.update({
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.transaction.update({
     where: { id },
     data: { categoryId, isReviewed: true, categoryRuleId: null, categoryOwnership: 'USER' },
     include: {
       category: { select: { id: true, name: true, icon: true, color: true } },
     },
+    });
+    await reconcileLoanTransactions(tx, [id]);
+    return updated;
   });
 }

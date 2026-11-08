@@ -5,6 +5,7 @@ import {
   decryptSecret, loadBankConfig, validateCurrency, QuarantinedProviderRecord, NORMALIZATION_VERSION,
   accountFacts, transactionFacts, transactionAnnotations, sourceFacts,
   enqueueBankSync,
+  reconcileLoanTransactions,
   type NormalizedTransactionChange, type PlaidRecordRepair,
 } from '@doughray/shared';
 import prisma from '../lib/prisma';
@@ -264,6 +265,9 @@ async function applyChanges(tx: Prisma.TransactionClient, connectionId: string, 
       transactionId: successorSource.transactionId, observedFacts: change.observedFacts as unknown as Prisma.InputJsonObject, sourceBatchId: batchId } });
   }
   for (const change of [...posted, ...removed]) await applyChange(tx, connectionId, batchId, change);
+  const sourceRows = await tx.transactionSource.findMany({ where: { accountSource: { connectionId },
+    externalTransactionId: { in: changes.map((change) => change.externalTransactionId) } }, select: { transactionId: true } });
+  await reconcileLoanTransactions(tx, sourceRows.map((source) => source.transactionId));
 }
 
 export async function refreshConnection(job: SyncJob): Promise<void> {

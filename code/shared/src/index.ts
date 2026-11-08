@@ -9,6 +9,7 @@ export * from './bank/reconciliation';
 export * from './bank/plaid';
 export * from './bank/sync-queue';
 export * from './bank/types';
+export * from './loan-tracking';
 export * from './normalize-payee';
 export * from './openai';
 export * from './prisma';

@@ -18,12 +18,13 @@ export interface PlaidAccountSuggestion {
   ignored: boolean; currentBalance: string | null;
 }
 export interface PlaidLinkAttempt { attemptId: string; mode: 'NEW' | 'UPDATE'; connectionId: string | null; linkToken: string; }
+export interface ReconciliationMatch { id: string; posted: string; amount: string; description: string; payee: string | null; searched?: boolean; updatedAt?: string }
 export interface MigrationReview {
   batchId: string;
   draftVersion: number;
   cases: Array<{ id: string; accountName: string; draft: Array<{ candidateId: string; action: 'SAME_TRANSACTION' | 'NEW_TRANSACTION'; transactionId: string | null }>; candidates: Array<{ id: string; evidence: {
     change: { postedDate: string; amount: string; currency: string; observedFacts: { description: string; payee: string | null } };
-    candidates: Array<{ id: string; posted: string; amount: string; description: string; payee: string | null }>;
+    candidates: ReconciliationMatch[];
   } }> }>;
 }
 export interface SyncJobResult { id: string; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; errorMessage: string | null; }
@@ -79,6 +80,13 @@ export const api = {
   pauseBank: (id: string, paused: boolean) => request<{ data: BankConnection }>(`/bank-connections/${encodeURIComponent(id)}/${paused ? 'pause' : 'resume'}`, { method: 'POST' }),
   disconnectBank: (id: string) => request<{ data: { retriable: boolean } }>(`/bank-connections/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   bankReview: (id: string) => request<{ data: MigrationReview | null }>(`/bank-reconciliation/${encodeURIComponent(id)}`),
+  searchBankMatches: (id: string, batchId: string, candidateId: string, term: string, page: number) => {
+    const query = new URLSearchParams({ term, page: String(page) });
+    return request<{ data: { matches: Array<ReconciliationMatch & { updatedAt: string }>; hasMore: boolean; page: number } }>(`/bank-reconciliation/${encodeURIComponent(id)}/${encodeURIComponent(batchId)}/candidates/${encodeURIComponent(candidateId)}/search?${query}`);
+  },
+  includeBankMatch: (id: string, batchId: string, candidateId: string, match: ReconciliationMatch & { updatedAt: string }) =>
+    request<{ data: ReconciliationMatch }>(`/bank-reconciliation/${encodeURIComponent(id)}/${encodeURIComponent(batchId)}/candidates/${encodeURIComponent(candidateId)}/include`,
+      { method: 'POST', body: JSON.stringify({ transactionId: match.id, updatedAt: match.updatedAt }) }),
   bankUndoable: (id: string) => request<{ data: { batchId: string; accounts: number } | null }>(`/bank-reconciliation/${encodeURIComponent(id)}/undo`),
   undoBankReview: (id: string, batchId: string) => request<{ data: { accounts: number } }>(`/bank-reconciliation/${encodeURIComponent(id)}/${encodeURIComponent(batchId)}/undo`, { method: 'POST' }),
   bankQuarantine: (id: string) => request<{ data: BankQuarantineItem[] }>(`/bank-connections/${encodeURIComponent(id)}/quarantine`),

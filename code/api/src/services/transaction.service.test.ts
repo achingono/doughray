@@ -12,16 +12,19 @@ const { prismaMock } = vi.hoisted(() => ({
     category: {
       findMany: vi.fn(),
     },
+    $transaction: vi.fn(),
   },
 }));
 
 vi.mock('../lib/prisma', () => ({ prisma: prismaMock }));
+vi.mock('@doughray/shared', async (importOriginal) => ({ ...(await importOriginal<typeof import('@doughray/shared')>()), reconcileLoanTransactions: vi.fn() }));
 
 import { getTransactionFilterCategories, getTransactions, updateTransactionCategory } from './transaction.service';
 
 describe('transaction.service', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    prismaMock.$transaction.mockImplementation(async (callback: (tx: typeof prismaMock) => Promise<unknown>) => callback(prismaMock));
   });
 
   it('returns paginated transactions with mapped amounts', async () => {

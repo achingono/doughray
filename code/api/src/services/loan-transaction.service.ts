@@ -1,6 +1,8 @@
 import { prisma } from '../lib/prisma';
 import { decimalToNumber } from '../lib/types';
 import { AppError } from '../middleware/error-handler';
+import { Prisma } from '@prisma/client';
+import { reconcileLoanTransactions } from '@doughray/shared';
 
 export enum LoanTransactionRuleType {
   CATEGORY = 'CATEGORY',
@@ -213,101 +215,26 @@ export async function getTransactionsForAccount(accountId: string): Promise<Loan
 }
 
 export async function runTrackingForAccount(accountId: string): Promise<number> {
-  const rules = await db.loanTransactionRule.findMany({
-    where: { accountId, isActive: true },
-    include: { category: true },
-  });
-
-  if (rules.length === 0) {
-    return 0;
-  }
-
-  const whereClauses: any[] = [];
-
-  for (const rule of rules) {
-    if (rule.ruleType === 'CATEGORY' && rule.categoryId) {
-      whereClauses.push({
-        AND: [
-          { account: { type: { notIn: EXCLUDED_SOURCE_ACCOUNT_TYPES } } },
-          { categoryId: rule.categoryId },
-        ],
-      });
-    } else if (rule.ruleType === 'PAYEE' && rule.normalizedPayee) {
-      whereClauses.push({
-        AND: [
-          { account: { type: { notIn: EXCLUDED_SOURCE_ACCOUNT_TYPES } } },
-          {
-            OR: [
-              { description: { contains: rule.normalizedPayee, mode: 'insensitive' } },
-              { payee: { contains: rule.normalizedPayee, mode: 'insensitive' } },
-            ],
-          },
-        ],
-      });
-    }
-  }
-
-  if (whereClauses.length === 0) {
-    return 0;
-  }
-
-  const sourceAccounts = await db.account.findMany({
-    where: { type: { notIn: EXCLUDED_SOURCE_ACCOUNT_TYPES }, isActive: true },
-    select: { id: true },
-  });
-  const sourceAccountIds = sourceAccounts.map((a: any) => a.id);
-
-  const candidateTransactions = await db.transaction.findMany({
-    where: {
-      status: 'POSTED',
-      accountId: { in: sourceAccountIds },
-      // Loan payments should typically be expenses (negative amounts).
-      // Filtering reduces incorrect associations with refunds/income.
-      amount: { lt: 0 },
-      OR: whereClauses,
-    },
-    orderBy: { posted: 'desc' },
-  });
-
-  const existingTransactions = await db.loanTransaction.findMany({
-    where: { linkedAccountId: accountId },
-    select: { sourceTransactionId: true },
-  });
-  const existingTxIds = new Set(existingTransactions.map((t: any) => t.sourceTransactionId));
-
-  let createdCount = 0;
-
-  for (const tx of candidateTransactions) {
-    if (existingTxIds.has(tx.id)) {
-      continue;
-    }
-
-    const matchingRule = rules.find((r: any) =>
-      r.ruleType === LoanTransactionRuleType.CATEGORY
-        ? r.categoryId === tx.categoryId
-        : r.normalizedPayee &&
-          (tx.description.toLowerCase().includes(r.normalizedPayee.toLowerCase()) ||
-            tx.payee?.toLowerCase().includes(r.normalizedPayee.toLowerCase()))
-    );
-
-    if (!matchingRule) {
-      continue;
-    }
-
-    await db.loanTransaction.create({
-      data: {
-        ruleId: matchingRule.id,
-        sourceTransactionId: tx.id,
-        linkedAccountId: accountId,
-        amount: tx.amount,
-        posted: tx.posted,
-        description: tx.description,
-      },
+  return prisma.$transaction(async (tx) => {
+    const rules = await tx.loanTransactionRule.findMany({ where: { accountId, isActive: true } });
+    const whereClauses = rules.flatMap<Prisma.TransactionWhereInput>((rule) => {
+      if (rule.ruleType === 'CATEGORY' && rule.categoryId) return [{ categoryId: rule.categoryId }];
+      if (rule.ruleType === 'PAYEE' && rule.normalizedPayee) return [{ OR: [
+        { description: { contains: rule.normalizedPayee, mode: 'insensitive' } },
+        { payee: { contains: rule.normalizedPayee, mode: 'insensitive' } },
+      ] }];
+      return [];
     });
-    createdCount++;
-  }
-
-  return createdCount;
+    const [existing, candidates] = await Promise.all([
+      tx.loanTransaction.findMany({ where: { linkedAccountId: accountId }, select: { sourceTransactionId: true } }),
+      whereClauses.length ? tx.transaction.findMany({ where: { status: 'POSTED', amount: { lt: 0 },
+        account: { isActive: true, type: { notIn: [...EXCLUDED_SOURCE_ACCOUNT_TYPES] } }, OR: whereClauses }, select: { id: true } }) : [],
+    ]);
+    const before = new Set(existing.map((row) => row.sourceTransactionId));
+    await reconcileLoanTransactions(tx, [...before, ...candidates.map((row) => row.id)], accountId);
+    const after = await tx.loanTransaction.findMany({ where: { linkedAccountId: accountId }, select: { sourceTransactionId: true } });
+    return after.filter((row) => !before.has(row.sourceTransactionId)).length;
+  }, { timeout: 120000 });
 }
 
 export async function runTrackingForAllAccounts(): Promise<Record<string, number>> {

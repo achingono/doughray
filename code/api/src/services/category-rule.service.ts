@@ -2,6 +2,7 @@ import { prisma } from '../lib/prisma';
 import { normalizePayee } from '../lib/normalize-payee';
 import type { PaginatedResponse } from '../lib/types';
 import { AppError } from '../middleware/error-handler';
+import { reconcileLoanTransactions } from '@doughray/shared';
 
 export interface CreateCategoryRuleInput {
   normalizedPayee: string;
@@ -113,14 +114,12 @@ export async function applyCategoryRulesToTransactions(transactionIds: string[])
     const rule = accountScoped ?? global;
     if (!rule) continue;
 
-    await prisma.transaction.update({
-      where: { id: transaction.id, isReviewed: false, categoryId: null, status: 'POSTED' },
-      data: {
-        categoryId: rule.categoryId,
-        isReviewed: true,
-        categoryRuleId: rule.id,
-        categoryOwnership: 'RULE',
-      },
+    await prisma.$transaction(async (tx) => {
+      await tx.transaction.update({
+        where: { id: transaction.id, isReviewed: false, categoryId: null, status: 'POSTED' },
+        data: { categoryId: rule.categoryId, isReviewed: true, categoryRuleId: rule.id, categoryOwnership: 'RULE' },
+      });
+      await reconcileLoanTransactions(tx, [transaction.id]);
     });
     applied += 1;
   }
